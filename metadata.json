@@ -1,0 +1,7 @@
+{
+  "name": "PlanBuddy",
+  "description": "An AI-powered travel planning assistant with real-time updates, collaboration, and budget tracking.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
