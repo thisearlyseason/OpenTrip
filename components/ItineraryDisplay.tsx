@@ -1,9 +1,13 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { TripPlan, DayActivity, TripDay } from '../types';
 import { TripDayCard } from './TripDayCard';
 import { LiveInsights } from './LiveInsights';
-import { BudgetTracker, CollaborativeLayer } from './PlanBuddyTools';
+import { CollaborativeLayer } from './PlanBuddyTools';
+import { BudgetDashboard } from './BudgetDashboard';
 import { UpgradeNudge } from './UpgradeNudge';
+import { TripMap } from './TripMap';
+import { generateImage } from '../services/gemini';
 
 interface ItineraryDisplayProps {
   plan: TripPlan;
@@ -14,6 +18,7 @@ interface ItineraryDisplayProps {
   onUpdatePlan: (newPlan: TripPlan) => void;
   canUndo: boolean;
   onUndo: () => void;
+  onShare: () => void;
 }
 
 export const ItineraryDisplay: React.FC<ItineraryDisplayProps> = ({ 
@@ -24,246 +29,225 @@ export const ItineraryDisplay: React.FC<ItineraryDisplayProps> = ({
   onUpgrade,
   onUpdatePlan,
   canUndo,
-  onUndo
+  onUndo,
+  onShare
 }) => {
   const [plan, setPlan] = useState<TripPlan>(initialPlan);
-  const [activeTab, setActiveTab] = useState<'itinerary' | 'map'>('itinerary');
+  const [activeTab, setActiveTab] = useState<'itinerary' | 'map' | 'transport' | 'budget'>('itinerary');
+  const [mapActiveDayIndex, setMapActiveDayIndex] = useState<number>(0);
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null);
   const [showTools, setShowTools] = useState(false);
   const [showNudge, setShowNudge] = useState<string | null>(null);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [isIntroExpanded, setIsIntroExpanded] = useState(false);
 
   useEffect(() => {
-    setPlan(initialPlan);
-    setCoverImageUrl(`https://source.unsplash.com/1600x900/?${encodeURIComponent(initialPlan.coverImagePrompt || initialPlan.tripTitle)}`);
+    const sortedDays = [...(initialPlan.days || [])].map((day, index) => ({
+      ...day,
+      dayNumber: index + 1
+    })).sort((a, b) => a.dayNumber - b.dayNumber);
+
+    const sortedPlan = { ...initialPlan, days: sortedDays };
+    setPlan(sortedPlan);
+    
+    const destinationName = initialPlan.destinationSummary || initialPlan.tripTitle || 'Destination';
+    generateImage(`A cinematic travel photograph of ${destinationName}. High resolution, NO text, NO watermarks.`, '16:9').then(setCoverImageUrl);
   }, [initialPlan]);
 
-  const recalculateTimes = (activities: DayActivity[]): DayActivity[] => {
-    // Basic automatic time recalculation: 
-    // Start at 9:00 AM, assume 2 hours per activity including transport.
-    let currentHour = 9;
-    let currentMinute = 0;
+  const parseDuration = (dur: string | number): number => {
+    if (typeof dur === 'number') return dur;
+    const match = dur.match(/(\d+)/);
+    return match ? parseInt(match[1]) : 30;
+  };
 
-    return activities.map((activity, index) => {
-      const isPM = currentHour >= 12;
-      const displayHour = currentHour > 12 ? currentHour - 12 : (currentHour === 0 ? 12 : currentHour);
-      const timeStr = `${displayHour}:${currentMinute === 0 ? '00' : currentMinute} ${isPM ? 'PM' : 'AM'}`;
-      
-      // Increment for next
-      currentHour += 2; 
-      if (currentHour >= 24) currentHour = 0;
-
-      return { ...activity, time: timeStr };
+  const recalculateTimes = (activities: DayActivity[], startTimeStr: string = '09:00'): DayActivity[] => {
+    const [startH, startM] = (startTimeStr || '09:00').split(':').map(Number);
+    let currentMinutes = startH * 60 + (startM || 0);
+    return activities.map((activity) => {
+      const h = Math.floor(currentMinutes / 60) % 24;
+      const m = currentMinutes % 60;
+      const isPM = h >= 12;
+      const dispH = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+      const timeStr = `${dispH}:${m.toString().padStart(2, '0')} ${isPM ? 'PM' : 'AM'}`;
+      const updatedActivity = { ...activity, time: timeStr };
+      currentMinutes += activity.durationMinutes || 60;
+      currentMinutes += activity.transportToNext?.duration ? parseDuration(activity.transportToNext.duration) : 30;
+      return updatedActivity;
     });
   };
 
   const handleUpdateDayActivities = (dayNumber: number, newActivities: DayActivity[]) => {
-    const newPlan = {
-      ...plan,
-      days: plan.days.map(d => d.dayNumber === dayNumber ? { ...d, activities: newActivities } : d)
-    };
-    onUpdatePlan(newPlan);
+    if (!isPro && dayNumber > 1) { setShowNudge(`locked-day-${dayNumber}`); return; }
+    const startTime = plan.metadata.timePreference?.start || '09:00';
+    const updatedActivities = recalculateTimes(newActivities, startTime);
+    onUpdatePlan({ ...plan, days: plan.days.map(d => d.dayNumber === dayNumber ? { ...d, activities: updatedActivities } : d) });
   };
 
   const handleUpdateDay = (dayNumber: number, newDay: TripDay) => {
-    const newPlan = {
-      ...plan,
-      days: plan.days.map(d => d.dayNumber === dayNumber ? newDay : d)
-    };
+    if (!isPro && dayNumber > 1) { setShowNudge(`locked-day-${dayNumber}`); return; }
+    const startTime = plan.metadata.timePreference?.start || '09:00';
+    const updatedDay = { ...newDay, activities: recalculateTimes(newDay.activities, startTime) };
+    onUpdatePlan({ ...plan, days: plan.days.map(d => d.dayNumber === dayNumber ? updatedDay : d) });
+  };
+
+  const handleUpdateTitle = (newTitle: string) => {
+    const newPlan = { ...plan, tripTitle: newTitle };
+    setPlan(newPlan);
     onUpdatePlan(newPlan);
   };
 
   const handleActivityDrop = (targetDayNumber: number, activityId: string, fromDayNumber: number, targetIndex: number) => {
+    if (!isPro && (targetDayNumber > 1 || fromDayNumber > 1)) { setShowNudge(`drop-lock`); return; }
     const newDays = [...plan.days];
-    const sourceDayIndex = newDays.findIndex(d => d.dayNumber === fromDayNumber);
-    const targetDayIndex = newDays.findIndex(d => d.dayNumber === targetDayNumber);
-
-    if (sourceDayIndex === -1 || targetDayIndex === -1) return;
-
-    const sourceDay = newDays[sourceDayIndex];
-    const targetDay = newDays[targetDayIndex];
-    
-    const sourceActivities = [...sourceDay.activities];
-    const activityIndex = sourceActivities.findIndex(a => a.id === activityId);
-    if (activityIndex === -1) return;
-
-    const [movedActivity] = sourceActivities.splice(activityIndex, 1);
-
-    if (sourceDayIndex === targetDayIndex) {
-      sourceActivities.splice(targetIndex, 0, movedActivity);
-      const updatedActivities = recalculateTimes(sourceActivities);
-      newDays[sourceDayIndex] = { ...sourceDay, activities: updatedActivities };
+    const sourceDayIdx = newDays.findIndex(d => d.dayNumber === fromDayNumber);
+    const targetDayIdx = newDays.findIndex(d => d.dayNumber === targetDayNumber);
+    if (sourceDayIdx === -1 || targetDayIdx === -1) return;
+    const sourceActivities = [...newDays[sourceDayIdx].activities];
+    const activityIdx = sourceActivities.findIndex(a => a.id === activityId);
+    if (activityIdx === -1) return;
+    const [moved] = sourceActivities.splice(activityIdx, 1);
+    const startTime = plan.metadata.timePreference?.start || '09:00';
+    if (sourceDayIdx === targetDayIdx) {
+      sourceActivities.splice(targetIndex, 0, moved);
+      newDays[sourceDayIdx] = { ...newDays[sourceDayIdx], activities: recalculateTimes(sourceActivities, startTime) };
     } else {
-      const targetActivities = [...targetDay.activities];
-      targetActivities.splice(targetIndex, 0, movedActivity);
-      
-      newDays[sourceDayIndex] = { ...sourceDay, activities: recalculateTimes(sourceActivities) };
-      newDays[targetDayIndex] = { ...targetDay, activities: recalculateTimes(targetActivities) };
+      const targetActivities = [...newDays[targetDayIdx].activities];
+      targetActivities.splice(targetIndex, 0, moved);
+      newDays[sourceDayIdx] = { ...newDays[sourceDayIdx], activities: recalculateTimes(sourceActivities, startTime) };
+      newDays[targetDayIdx] = { ...newDays[targetDayIdx], activities: recalculateTimes(targetActivities, startTime) };
     }
-
     onUpdatePlan({ ...plan, days: newDays });
   };
 
-  const allStops = plan.days.flatMap(d => d.activities);
-  const firstAddress = allStops.find(stop => stop.address)?.address || plan.destinationSummary;
+  const hasHotelBooked = plan.metadata.accommodations && plan.metadata.accommodations.length > 0 && plan.metadata.accommodations.some(a => a.booked);
 
   return (
     <div className="max-w-6xl mx-auto animate-slideUp relative pb-20 px-4">
-      {/* Undo Button (Trip Rewind) */}
       {canUndo && isPro && (
-        <button 
-          onClick={onUndo}
-          className="fixed bottom-24 right-6 z-50 bg-white text-stone-900 border border-stone-200 px-4 py-2 rounded-full shadow-2xl font-bold text-xs flex items-center gap-2 hover:bg-stone-50 transition"
-        >
-          Undo this change 🌀
-        </button>
+        <button onClick={onUndo} className="fixed bottom-24 right-6 z-50 bg-white text-stone-900 border border-stone-200 px-4 py-2 rounded-full shadow-2xl font-bold text-xs flex items-center gap-2 hover:bg-stone-50 transition">Undo Edit 🌀</button>
       )}
 
-      <div className="bg-white rounded-[2.5rem] shadow-xl overflow-hidden mb-8 border border-white group relative">
-        <div className="relative h-96 bg-stone-200">
-           {coverImageUrl ? <img src={coverImageUrl} alt="Trip Cover" className="w-full h-full object-cover" /> : <div className="w-full h-full bg-stone-300 animate-pulse" />}
-           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none"></div>
-           <div className="absolute bottom-0 left-0 right-0 p-10 text-white flex flex-col md:flex-row md:items-end justify-between gap-6">
-                <div>
-                  <h1 className="text-4xl md:text-6xl font-extrabold mb-4 leading-tight tracking-tight drop-shadow-lg">{plan.tripTitle}</h1>
-                  <div className="flex flex-wrap gap-4 items-center">
-                      <span className="bg-white/20 backdrop-blur-md px-5 py-2 rounded-full border border-white/20 font-bold text-sm shadow-md">Based on your vibe…</span>
-                      <span className="bg-white/20 backdrop-blur-md px-5 py-2 rounded-full border border-white/20 font-bold text-sm shadow-md">{plan.travelVibe} vibes activated 🌿</span>
-                  </div>
+      {/* Hero */}
+      <div className="bg-white rounded-[2.5rem] shadow-xl overflow-hidden mb-8 border border-white relative group">
+        <div className="relative min-h-[500px] md:h-[600px] bg-stone-200">
+           {coverImageUrl && <img src={coverImageUrl} alt={plan.tripTitle} className="w-full h-full object-cover" />}
+           <div className="absolute inset-0 bg-gradient-to-t from-stone-900 via-stone-900/60 to-transparent"></div>
+           <div className="absolute bottom-0 left-0 right-0 p-8 md:p-12 text-white flex flex-col gap-6 z-10">
+              <div className="w-full">
+                {isEditingTitle ? (
+                  <input autoFocus value={plan.tripTitle} onChange={(e) => handleUpdateTitle(e.target.value)} onBlur={() => setIsEditingTitle(false)} onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)} className="text-4xl md:text-6xl font-black bg-transparent border-b-2 border-white/50 outline-none w-full text-white" />
+                ) : (
+                  <h1 onClick={() => setIsEditingTitle(true)} className="text-4xl md:text-6xl font-black drop-shadow-xl hover:text-stone-200 transition-colors cursor-pointer decoration-dotted underline-offset-8 hover:underline decoration-white/30">{plan.tripTitle}</h1>
+                )}
+                <div className="flex flex-wrap gap-3 items-center mt-6">
+                  <span className="bg-white/20 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20 font-bold text-xs shadow-md">{plan.travelVibe || 'Journey'} 🌿</span>
+                  <span className="bg-white/20 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20 font-bold text-xs shadow-md">{plan.metadata?.dates?.duration || 'Multi'} Days</span>
                 </div>
-                <button 
-                  onClick={() => setShowTools(!showTools)}
-                  className={`px-8 py-3 rounded-2xl font-bold transition-all ${showTools ? 'bg-white text-stone-900 shadow-2xl scale-105' : 'bg-white/10 text-white backdrop-blur-md border border-white/20 hover:bg-white/20'}`}
-                >
-                  {showTools ? '✨ Close Power Tools' : '🛠️ Open Power Tools'}
-                </button>
+                <div className="bg-black/20 backdrop-blur-md p-6 rounded-3xl border border-white/10 max-w-4xl mt-6">
+                  <p onClick={() => setIsIntroExpanded(!isIntroExpanded)} className={`text-sm md:text-base text-stone-100 font-medium leading-relaxed cursor-pointer transition-all ${isIntroExpanded ? '' : 'line-clamp-3 md:line-clamp-none'}`}>{plan.intro}</p>
+                </div>
+              </div>
            </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         <div className={`transition-all duration-500 ${showTools ? 'lg:col-span-8' : 'lg:col-span-12'}`}>
-          <div className="mb-10">
-            <LiveInsights destination={plan.destinationSummary} />
-          </div>
+          <LiveInsights destination={plan.destinationSummary || 'Location'} hasHotelBooked={hasHotelBooked} />
 
-          <div className="flex justify-center mb-10">
-            <div className="bg-white p-1.5 rounded-2xl shadow-sm border flex gap-1">
-                <button onClick={() => setActiveTab('itinerary')} className={`px-8 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'itinerary' ? 'bg-stone-900 text-white shadow-lg' : 'text-stone-400 hover:text-stone-700'}`}>Timeline</button>
-                <button onClick={() => setActiveTab('map')} className={`px-8 py-3 rounded-xl font-bold text-sm transition ${activeTab === 'map' ? 'bg-stone-900 text-white shadow-lg' : 'text-stone-400 hover:text-stone-700'}`}>Map View</button>
-            </div>
-          </div>
-
-          {activeTab === 'itinerary' ? (
-            <div className="space-y-12">
-                <div className="bg-white p-8 rounded-[2rem] border border-stone-100 shadow-sm mb-12">
-                    <p className="text-stone-600 leading-relaxed italic text-lg">"{plan.intro}"</p>
-                    {plan.metadata.accommodation?.booked && (
-                      <div className="mt-4 p-4 bg-stone-50 rounded-2xl border border-stone-200">
-                        <h4 className="font-bold text-xs uppercase tracking-widest text-stone-400 mb-2">Primary Accommodation</h4>
-                        <p className="font-bold text-stone-800">{plan.metadata.accommodation.hotelName}</p>
-                        <p className="text-xs text-stone-500">{plan.metadata.accommodation.address}</p>
-                        {plan.metadata.accommodation.confirmationNumber && (
-                          <p className="text-[10px] font-mono text-sky-600 mt-1">CONF: {plan.metadata.accommodation.confirmationNumber}</p>
-                        )}
-                      </div>
-                    )}
-                </div>
-
-                {/* FIX: MUST ALWAYS list the website URLs from groundingChunks when Google Search tool is used. */}
-                {groundingUrls && groundingUrls.length > 0 && (
-                  <div className="bg-sky-50 p-6 rounded-[2rem] border border-sky-100 mb-12 animate-fadeIn">
-                    <h4 className="text-[10px] font-bold text-sky-900 uppercase tracking-widest mb-3 flex items-center gap-2">
-                       <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
-                       Research & Real-time Sources
-                    </h4>
-                    <div className="flex flex-wrap gap-2">
-                      {groundingUrls.map((chunk: any, i: number) => {
-                        if (chunk.web) {
-                          return (
-                            <a 
-                              key={i} 
-                              href={chunk.web.uri} 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="bg-white px-4 py-2 rounded-xl border border-sky-200 text-[10px] font-bold text-sky-700 hover:bg-sky-100 transition shadow-sm flex items-center gap-2"
-                            >
-                              <span>🌐</span>
-                              {chunk.web.title || 'Source'}
-                            </a>
-                          );
-                        }
-                        return null;
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {plan.days.map((day) => (
-                    <div key={day.dayNumber}>
-                      <TripDayCard 
-                          day={day} 
-                          destination={plan.destinationSummary} 
-                          onUpdateActivities={handleUpdateDayActivities}
-                          onUpdateDay={handleUpdateDay}
-                          onActivityDrop={handleActivityDrop}
-                          dietary={plan.metadata.dietary}
-                          vibe={plan.travelVibe}
-                          isPro={isPro}
-                          transportModes={plan.metadata.transportModes}
-                          onGatedActionTrigger={(feature) => {
-                            if (!isPro) setShowNudge(feature);
-                          }}
-                      />
-                      {showNudge === `day-${day.dayNumber}` && (
-                        <div className="mt-4">
-                          <UpgradeNudge 
-                            featureName={`Edit Day ${day.dayNumber}`}
-                            onUpgrade={onUpgrade}
-                            onClose={() => setShowNudge(null)}
-                          />
-                        </div>
-                      )}
-                    </div>
+          <div className="flex justify-center my-10 overflow-x-auto px-2">
+            <div className="bg-white p-1.5 rounded-2xl shadow-sm border flex gap-1 whitespace-nowrap">
+                {['itinerary', 'map', 'budget', 'transport'].map(tab => (
+                  <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-6 py-3 rounded-xl font-bold text-sm uppercase tracking-widest transition ${activeTab === tab ? 'bg-stone-900 text-white shadow-lg' : 'text-stone-400 hover:text-stone-700'}`}>{tab}</button>
                 ))}
             </div>
-          ) : (
-            <div className="bg-white rounded-[2.5rem] p-8 border border-stone-100 shadow-xl min-h-[600px] overflow-hidden">
-                <iframe 
-                    width="100%" 
-                    height="600px" 
-                    style={{ border: 0 }} 
-                    src={`https://www.google.com/maps/embed/v1/search?key=${process.env.API_KEY}&q=${encodeURIComponent(firstAddress)}`}
-                    allowFullScreen
-                ></iframe>
+          </div>
+
+          {activeTab === 'itinerary' && (
+            <div className="space-y-12">
+              {plan.days.map((day, idx) => (
+                <div key={idx} className="relative">
+                  <TripDayCard day={day} destination={plan.destinationSummary} onUpdateActivities={handleUpdateDayActivities} onUpdateDay={handleUpdateDay} onActivityDrop={handleActivityDrop} vibe={plan.travelVibe} isPro={isPro} onGatedActionTrigger={setShowNudge} />
+                  {!isPro && day.dayNumber > 1 && (
+                    <div className="absolute inset-0 bg-stone-50/60 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center rounded-[2.5rem] p-10 text-center border-2 border-dashed border-stone-200">
+                       <button onClick={onUpgrade} className="bg-indigo-600 text-white px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:scale-105 transition">Unlock Day {day.dayNumber} 💎</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeTab === 'map' && (
+            <div className="bg-white rounded-[2.5rem] p-8 shadow-xl animate-fadeIn space-y-8">
+              <div className="flex flex-col items-center gap-6">
+                <div className="text-center">
+                  <h3 className="text-2xl font-black text-stone-900 mb-1">Route Visualization 🗺️</h3>
+                  <p className="text-stone-400 text-xs font-bold uppercase tracking-widest">Select a day to view its specific stops</p>
+                </div>
+                <div className="flex gap-1.5 bg-stone-100 p-1 rounded-2xl border overflow-x-auto w-full max-w-2xl no-scrollbar">
+                   <button 
+                     onClick={() => setMapActiveDayIndex(-1)}
+                     className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${mapActiveDayIndex === -1 ? 'bg-indigo-600 text-white shadow-md' : 'text-stone-400 hover:text-stone-900'}`}
+                   >
+                     Full Route
+                   </button>
+                   {plan.days.map((day, idx) => (
+                     <button 
+                        key={idx}
+                        onClick={() => setMapActiveDayIndex(idx)}
+                        className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${mapActiveDayIndex === idx ? 'bg-stone-900 text-white shadow-md' : 'text-stone-400 hover:text-stone-900'}`}
+                     >
+                        Day {day.dayNumber}
+                     </button>
+                   ))}
+                </div>
+              </div>
+              <TripMap plan={plan} activeDayIndex={mapActiveDayIndex} />
+            </div>
+          )}
+          
+          {activeTab === 'budget' && <BudgetDashboard plan={plan} onUpdatePlan={onUpdatePlan} isPro={isPro} />}
+
+          {activeTab === 'transport' && (
+            <div className="bg-white rounded-[2.5rem] p-10 shadow-xl animate-fadeIn min-h-[500px]">
+               <div className="text-center mb-12">
+                  <h3 className="text-3xl font-black text-stone-900 mb-2">Local Transit Directory 🚕</h3>
+                  <p className="text-stone-500 max-w-lg mx-auto">Verified local transport services for {plan.destinationSummary.split(',')[0]}.</p>
+               </div>
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {plan.transportResources?.map((res, i) => {
+                    const isUrl = res.contact?.startsWith('http') || res.contact?.includes('.com') || res.contact?.includes('.org');
+                    return (
+                      <div key={i} className="p-10 bg-stone-50 rounded-[2.5rem] border border-stone-100 flex flex-col group hover:border-indigo-200 transition-all shadow-sm">
+                         <div className="flex justify-between items-start mb-6">
+                            <span className="text-2xl font-black text-stone-900">{res.name}</span>
+                            <span className="bg-white p-4 rounded-2xl shadow-sm text-3xl">{res.type.includes('Taxi') ? '🚕' : res.type.includes('Rideshare') ? '📱' : '🚌'}</span>
+                         </div>
+                         <p className="text-sm text-stone-500 font-medium italic mb-10 flex-1 leading-relaxed">{res.notes}</p>
+                         {isUrl ? (
+                           <a href={res.contact.startsWith('http') ? res.contact : `https://${res.contact}`} target="_blank" rel="noreferrer" className="w-full bg-stone-900 text-white py-5 rounded-2xl text-center font-black text-[10px] uppercase tracking-widest hover:bg-black transition shadow-xl">Explore Official Service ↗</a>
+                         ) : (
+                           <a href={`tel:${res.contact}`} className="w-full bg-white border border-stone-200 text-stone-900 py-5 rounded-2xl text-center font-black text-[10px] uppercase tracking-widest hover:bg-stone-50 transition shadow-md">Call Business: {res.contact} 📞</a>
+                         )}
+                      </div>
+                    );
+                  })}
+               </div>
             </div>
           )}
         </div>
 
-        {showTools && (
-          <div className="lg:col-span-4 space-y-8 animate-fadeIn">
-            <BudgetTracker plan={plan} onGatedActionTrigger={(f) => { if(!isPro) setShowNudge(f); }} isPro={isPro} />
-            <CollaborativeLayer plan={plan} onGatedActionTrigger={(f) => { if(!isPro) setShowNudge(f); }} isPro={isPro} />
-            
-            {showNudge && showNudge.startsWith('tool-') && (
-              <UpgradeNudge 
-                featureName={showNudge === 'tool-budget' ? 'Pro Budget Sense' : 'OpenCollab Pro'}
-                onUpgrade={onUpgrade}
-                onClose={() => setShowNudge(null)}
-              />
-            )}
-
-            <div className="bg-stone-900 text-white p-6 rounded-3xl shadow-xl">
-               <h4 className="font-bold text-lg mb-2 text-white">Pro Sharing 📤</h4>
-               <p className="text-xs opacity-60 mb-4">Export a teaser preview of this trip to social media.</p>
-               <button className="w-full bg-white text-stone-900 py-3 rounded-xl font-bold text-xs hover:bg-stone-100 transition">Generate Preview Link</button>
-            </div>
-          </div>
-        )}
+        {showTools && <div className="lg:col-span-4"><CollaborativeLayer plan={plan} onGatedActionTrigger={setShowNudge} isPro={isPro} onUpgrade={onUpgrade} onShare={onShare} /></div>}
       </div>
 
-      <div className="mt-12 text-center">
-        <button onClick={onReset} className="bg-stone-900 text-white px-10 py-4 rounded-2xl hover:bg-black transition shadow-xl font-bold">Start New Trip 🚀</button>
-      </div>
+      {showNudge && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-stone-900/60 backdrop-blur-md p-4">
+          <UpgradeNudge featureName="Pro Travel Management" onUpgrade={onUpgrade} onClose={() => setShowNudge(null)} />
+        </div>
+      )}
+      
+      <div className="mt-12 text-center"><button onClick={onReset} className="bg-stone-900 text-white px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:bg-black transition">Design New Trip 🚀</button></div>
     </div>
   );
 };

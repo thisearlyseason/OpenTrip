@@ -1,3 +1,4 @@
+
 export type ActivityType = 'sightseeing' | 'food' | 'nature' | 'relax' | 'culture' | 'shopping' | 'transport' | 'other' | 'arrival' | 'departure';
 
 export interface Traveler {
@@ -8,7 +9,7 @@ export interface Traveler {
 }
 
 export interface TravelerInfo {
-  type: 'Solo' | 'Couple' | 'Family' | 'Friends';
+  type: 'Solo' | 'Couple' | 'Family' | 'Friends' | 'Custom';
   adults: number;
   children: number;
   details: Traveler[];
@@ -18,8 +19,10 @@ export interface FlightLeg {
   id: string;
   flightNumber: string;
   departureAirport: string;
+  departureDate: string;
   departureTime: string;
   arrivalAirport: string;
+  arrivalDate: string;
   arrivalTime: string;
   confirmationNumber?: string;
 }
@@ -30,20 +33,42 @@ export interface FlightDetails {
 }
 
 export interface AccommodationDetails {
+  id: string;
   booked: boolean;
   hotelName?: string;
   address?: string;
-  checkIn?: string;
-  checkOut?: string;
+  lat?: number;
+  lng?: number;
+  checkInDate?: string;
+  checkInTime?: string;
+  checkOutDate?: string;
+  checkOutTime?: string;
   confirmationNumber?: string;
   contactInfo?: string;
-  wantsSuggestions?: boolean;
+  cost?: string;
+}
+
+export interface Receipt {
+  id: string;
+  category: 'flight' | 'hotel' | 'food' | 'activity' | 'other';
+  title: string;
+  vendor: string;
+  date: string;
+  amount?: number;
+  fileData: string; // base64 string for local storage
+  fileName: string;
+  fileType: string; // mime type
 }
 
 export interface TripRequest {
   destination: string;
-  vibe: string;
+  vibe: string[];
   budget?: number;
+  budgetType: 'total' | 'perPerson';
+  flightBudget?: number;
+  includeFlightBudget: boolean;
+  hotelBudget?: number;
+  includeHotelBudget: boolean;
   dates: {
     start: string;
     end: string;
@@ -58,45 +83,53 @@ export interface TripRequest {
   transport: string[];
   interests: string[];
   mustIncludes: string[];
-  accommodation: AccommodationDetails;
+  accommodations: AccommodationDetails[];
   dietary: string[];
+  foodPreferences: string[];
 }
 
-export interface TransportDetail {
-  mode: string;
-  duration?: string;
-  description?: string;
-  website?: string;
-  distance?: string;
+export interface TransportResource {
+  type: string;
+  name: string;
+  contact: string;
+  notes?: string;
 }
 
 export interface DayActivity {
   id: string;
   time: string;
+  durationMinutes: number;
   title: string;
   description: string;
   type: ActivityType;
+  imagePrompt?: string;
   imageUrl?: string;
+  additionalImages?: string[];
   location?: string;
-  address?: string; 
+  address?: string;
+  lat?: number;
+  lng?: number;
   website?: string; 
   contact?: string; 
-  hours?: string; 
-  searchQuery?: string;
-  externalLink?: string;
   costEstimate?: string;
   rating?: number;
-  reviewCount?: number;
-  transportToNext?: TransportDetail; 
+  reviewCount?: string;
+  priceLevel?: string; // e.g. "$25 - $45 pp"
+  openingHoursToday?: string;
+  statusLabel?: string; // e.g. "Ticket required"
+  transportToNext?: {
+    mode: string;
+    duration?: string;
+    description?: string;
+    cost?: string;
+  }; 
 }
 
 export interface TripDay {
   dayNumber: number;
-  date?: string;
   theme: string;
+  summary: string; 
   activities: DayActivity[];
-  foodSpot?: string; 
-  foodDescription?: string;
 }
 
 export interface ContactEntry {
@@ -107,6 +140,7 @@ export interface ContactEntry {
 }
 
 export interface TripPlan {
+  id: string; 
   tripTitle: string; 
   destinationSummary: string;
   tripDuration: string;
@@ -114,39 +148,42 @@ export interface TripPlan {
   intro: string;
   coverImagePrompt?: string;
   importantContacts: ContactEntry[];
+  transportResources?: TransportResource[]; 
   days: TripDay[];
+  receipts?: Receipt[];
+  createdAt: number; 
   metadata: {
       flights: FlightDetails;
-      accommodation: AccommodationDetails;
+      accommodations: AccommodationDetails[];
       travelers: TravelerInfo;
       dates: { start: string; end: string; duration: number };
       transportModes: string[];
       interests: string[];
       dietary: string[];
+      foodPreferences: string[];
       budget?: number;
+      budgetType?: 'total' | 'perPerson';
+      timePreference?: { start: string; end: string; };
   };
-  // PlanBuddy Extensions
-  budget?: {
-    total: number;
-    expenses: Array<{ id: string; category: string; amount: number; description: string }>;
+  budgetOverrides?: {
+      flightCost?: number;
+      accommodationCost?: number;
+      activityCosts?: Record<string, number>;
+      includeFlight?: boolean;
+      includeAccommodation?: boolean;
   };
+  tier?: string;
   collaboration?: {
-    comments: Array<{ id: string; author: string; text: string; timestamp: number; activityId?: string }>;
-    votes: Record<string, number>;
+    comments: Array<{
+      id: string;
+      author: string;
+      text: string;
+      timestamp: number;
+    }>;
   };
-  // Gating & Rewind Extensions
-  tier?: 'free' | 'pro';
-  historyStack?: string[]; // Stores stringified versions of previous plans
 }
 
 export interface LiveContext {
   weather?: { temp: string; condition: string; icon: string };
-  alerts?: string[];
   events?: Array<{ title: string; time: string; location: string }>;
-}
-
-export interface ShareConfig {
-  isShared: boolean;
-  accessLevel: 'view' | 'edit';
-  ownerName?: string;
 }

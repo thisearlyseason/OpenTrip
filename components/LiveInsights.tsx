@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { fetchLiveContext } from '../services/gemini';
 import { LiveContext } from '../types';
 
-export const LiveInsights: React.FC<{ destination: string }> = ({ destination }) => {
+export const LiveInsights: React.FC<{ destination: string; hasHotelBooked?: boolean }> = ({ destination, hasHotelBooked }) => {
   const [live, setLive] = useState<LiveContext | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -17,36 +17,56 @@ export const LiveInsights: React.FC<{ destination: string }> = ({ destination })
   if (loading) return null;
 
   return (
-    <div className="animate-fadeIn bg-sky-900 text-white p-6 rounded-[2rem] shadow-xl overflow-hidden relative group">
-      <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-        <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
-      </div>
-      <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <h3 className="text-xs font-bold uppercase tracking-[0.2em] opacity-60 mb-2">Live Destination Insights</h3>
-          <div className="flex items-center gap-3">
-             <span className="text-4xl font-black">{live?.weather?.temp || '72°F'}</span>
-             <div className="text-sm font-medium leading-tight">
-               <p>{live?.weather?.condition || 'Partly Cloudy'}</p>
-               <p className="opacity-60">Real-time update</p>
-             </div>
-          </div>
+    <div className="animate-fadeIn space-y-6">
+      <div className="bg-sky-900 text-white p-8 rounded-[2rem] shadow-xl overflow-hidden relative group">
+        <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+          <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>
         </div>
-        
-        {live?.events && live.events.length > 0 && (
-          <div className="flex-1 border-l border-white/10 pl-6">
-            <h4 className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-3">Trending Today</h4>
-            <div className="space-y-2">
-               {live.events.slice(0, 2).map((e, i) => (
-                 <div key={i} className="text-xs flex items-center gap-2">
-                   <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
-                   <span className="font-bold">{e.title}</span>
-                   <span className="opacity-60">— {e.location}</span>
-                 </div>
-               ))}
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-10">
+          <div className="flex-1">
+            <h3 className="text-xs font-bold uppercase tracking-[0.2em] opacity-60 mb-3">Live Destination Weather</h3>
+            <div className="flex items-center gap-5">
+               <span className="text-5xl font-black">{live?.weather?.temp || '72°F'}</span>
+               <div className="text-sm font-medium leading-tight">
+                 <p className="text-lg font-bold">{live?.weather?.condition || 'Partly Cloudy'}</p>
+                 <p className="opacity-60">Latest report for {destination.split(',')[0]}</p>
+               </div>
             </div>
           </div>
-        )}
+          
+          {/* Shared Action Card: Events & Hotels */}
+          <div className="flex-1 flex flex-col sm:flex-row gap-4 lg:max-w-md w-full">
+             {/* OpenTicket Event Link */}
+             <a 
+               href="https://www.openticket.events/#/browse" 
+               target="_blank" 
+               rel="noopener noreferrer"
+               className="flex-1 bg-white/10 hover:bg-white/20 transition-all p-4 rounded-2xl border border-white/10 group shadow-lg flex items-center justify-between"
+             >
+               <div>
+                 <p className="text-[10px] font-black uppercase tracking-widest text-sky-300 mb-1">Upcoming Events</p>
+                 <span className="text-sm font-bold">Browse on OpenTicket</span>
+               </div>
+               <span className="text-xl group-hover:translate-x-1 transition-transform">🎟️</span>
+             </a>
+
+             {/* Hotel CTA - Conditionally Rendered */}
+             {!hasHotelBooked && (
+               <a 
+                 href="https://openstay.io" 
+                 target="_blank" 
+                 rel="noopener noreferrer"
+                 className="flex-1 bg-gradient-to-r from-indigo-500/80 to-indigo-600/80 hover:from-indigo-500 hover:to-indigo-600 transition-all p-4 rounded-2xl border border-white/10 group shadow-lg flex items-center justify-between animate-pulse-slow"
+               >
+                 <div>
+                   <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200 mb-1">Need a Place?</p>
+                   <span className="text-sm font-bold">Save on OpenStay.io</span>
+                 </div>
+                 <span className="text-xl group-hover:translate-x-1 transition-transform">🏨</span>
+               </a>
+             )}
+          </div>
+        </div>
       </div>
     </div>
   );

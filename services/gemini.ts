@@ -1,320 +1,222 @@
-// FIX: The Schema type is not intended for direct import and use. The schema object can be defined without it.
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { TripRequest, TripPlan, DayActivity, LiveContext, TripDay } from "../types";
 
-const getAiClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+const sessionCache = new Map<string, any>();
 
-// FIX: Removed Schema type annotation.
-const tripPlanSchema = {
-  type: Type.OBJECT,
-  properties: {
-    tripTitle: { type: Type.STRING, description: "Location name followed by a clever subtitle. e.g. 'Paris: A Flâneur's Guide to Culinary Bliss'" },
-    destinationSummary: { type: Type.STRING },
-    tripDuration: { type: Type.STRING },
-    travelVibe: { type: Type.STRING },
-    intro: { type: Type.STRING },
-    coverImagePrompt: { type: Type.STRING },
-    importantContacts: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          role: { type: Type.STRING },
-          name: { type: Type.STRING },
-          phone: { type: Type.STRING },
-          address: { type: Type.STRING }
-        }
-      }
-    },
-    days: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          dayNumber: { type: Type.INTEGER },
-          date: { type: Type.STRING },
-          theme: { type: Type.STRING },
-          activities: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                id: { type: Type.STRING, description: "A unique client-side identifier for the activity. Can be omitted." },
-                time: { type: Type.STRING, description: "Time in 12-hour format with AM/PM (e.g., 9:00 AM, 2:30 PM)." },
-                title: { type: Type.STRING },
-                description: { type: Type.STRING },
-                type: { 
-                  type: Type.STRING, 
-                  enum: ['sightseeing', 'food', 'nature', 'relax', 'culture', 'shopping', 'transport', 'other', 'arrival', 'departure'] 
-                },
-                imageUrl: { type: Type.STRING, description: "A detailed, descriptive prompt for an Unsplash image that visually represents the activity. e.g., 'A cozy Parisian cafe with patrons enjoying croissants and coffee'." },
-                location: { type: Type.STRING },
-                address: { type: Type.STRING },
-                website: { type: Type.STRING },
-                contact: { type: Type.STRING },
-                hours: { type: Type.STRING },
-                searchQuery: { type: Type.STRING, description: "A succinct Google Search query to find more information, e.g., 'Eiffel Tower tickets'." },
-                externalLink: { type: Type.STRING, description: "URL to purchase tickets or official website, especially for sports or events." },
-                costEstimate: { type: Type.STRING },
-                rating: { type: Type.NUMBER },
-                reviewCount: { type: Type.INTEGER },
-                transportToNext: {
-                   type: Type.OBJECT,
-                   properties: {
-                      mode: { type: Type.STRING },
-                      duration: { type: Type.STRING, description: "Accurate travel time between locations." },
-                      description: { type: Type.STRING },
-                      website: { type: Type.STRING },
-                      distance: { type: Type.STRING },
-                   }
-                }
-              },
-              required: ['time', 'title', 'description', 'type'],
-            },
-          },
-        },
-        required: ['dayNumber', 'theme', 'activities'],
-      },
-    },
-    metadata: {
-        type: Type.OBJECT,
-        properties: {
-            flights: {
-              type: Type.OBJECT,
-              properties: {
-                booked: { type: Type.BOOLEAN },
-                legs: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      id: { type: Type.STRING },
-                      flightNumber: { type: Type.STRING },
-                      departureAirport: { type: Type.STRING },
-                      departureTime: { type: Type.STRING },
-                      arrivalAirport: { type: Type.STRING },
-                      arrivalTime: { type: Type.STRING },
-                      confirmationNumber: { type: Type.STRING }
-                    }
-                  }
-                }
-              }
-            },
-            accommodation: {
-              type: Type.OBJECT,
-              properties: {
-                booked: { type: Type.BOOLEAN },
-                hotelName: { type: Type.STRING },
-                address: { type: Type.STRING },
-                checkIn: { type: Type.STRING },
-                checkOut: { type: Type.STRING },
-                confirmationNumber: { type: Type.STRING },
-                contactInfo: { type: Type.STRING },
-                wantsSuggestions: { type: Type.BOOLEAN }
-              }
-            },
-            travelers: {
-              type: Type.OBJECT,
-              properties: {
-                type: { type: Type.STRING },
-                adults: { type: Type.INTEGER },
-                children: { type: Type.INTEGER },
-                details: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      id: { type: Type.STRING },
-                      name: { type: Type.STRING },
-                      age: { type: Type.STRING },
-                      isChild: { type: Type.BOOLEAN }
-                    }
-                  }
-                }
-              }
-            },
-            dates: {
-              type: Type.OBJECT,
-              properties: {
-                start: { type: Type.STRING },
-                end: { type: Type.STRING },
-                duration: { type: Type.INTEGER }
-              }
-            },
-            transportModes: { type: Type.ARRAY, items: { type: Type.STRING } },
-            interests: { type: Type.ARRAY, items: { type: Type.STRING } },
-            dietary: { type: Type.ARRAY, items: { type: Type.STRING } },
-            budget: { type: Type.NUMBER }
-        }
-    }
-  },
-  required: ['tripTitle', 'destinationSummary', 'tripDuration', 'travelVibe', 'intro', 'days', 'metadata'],
-};
+/**
+ * Returns a new AI instance to ensure we always use the latest environment API key.
+ */
+const getAi = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-export const suggestVibes = async (destination: string, interests: string[]): Promise<string[]> => {
-  const ai = getAiClient();
-  const prompt = `Suggest 4 creative and evocative "trip vibes" for a trip to ${destination} with interests in ${interests.join(', ')}. JSON array of strings only.`;
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: { responseMimeType: 'application/json', responseSchema: { type: Type.ARRAY, items: { type: Type.STRING } } }
-    });
-    return JSON.parse(response.text || '[]');
-  } catch (error) { return ["Luxurious", "Adventurous", "Family Friendly", "Cultural"]; }
-};
-
-export const generateTripPlan = async (request: TripRequest): Promise<{ plan: TripPlan, groundingUrls: any[] }> => {
-  const ai = getAiClient();
-  const travelerDesc = request.travelers.details.map(t => `${t.name} (${t.isChild ? `Age ${t.age}` : 'Adult'})`).join(', ');
-  const prompt = `
-  You are Vesper, an elite AI travel consultant with the soul of a professional trip planner. Your task is to craft a hyper-personalized, realistic, and engaging travel itinerary based on the user's request. Your plans must be authentic, reliable, and inspiring.
-
-  **CRITICAL DIRECTIVES:**
-  1.  **DEEPLY PERSONALIZE:** Scrutinize every piece of user input—destination, vibe, budget, traveler details, interests, transport preferences, and must-includes. The itinerary MUST reflect these choices. For example, if the user specifies 'hiking' and 'local markets', these must be prominent activities.
-  2.  **REALISTIC PACING & DURATION:** Do not just list places. Create a realistic flow. Allocate appropriate time for each activity (e.g., a major museum visit should be 2-3 hours, not 1 hour). Crucially, factor in the 'transportToNext' duration when scheduling the next event. Avoid packing the day too tightly; build in moments for relaxation and spontaneous discovery.
-  3.  **RICH, DETAILED CONTENT:** Generate at least 4-6 high-quality activities per full day. For each activity:
-      - Write a compelling 'description' that explains *why* this activity is a great choice for the user.
-      - Provide a specific 'location' and 'address' where possible.
-      - Generate a highly descriptive 'imageUrl' prompt suitable for an image service like Unsplash (e.g., "A vibrant, busy street food stall in Bangkok at night, cinematic lighting"). This is NOT a URL.
-      - For 'transportToNext', provide accurate travel mode, duration, and a helpful description.
-  4.  **BUDGET-CONSCIOUS PLANNING:** Adhere to the specified budget. The 'costEstimate' for activities should be realistic. Use "FREE" for no-cost activities.
-  5.  **AUTHENTICITY & RELIABILITY:** Suggest a mix of famous landmarks and local hidden gems. Ensure the plan feels like it was made by a seasoned traveler, not just a list from a search engine.
-
-  **USER REQUEST DETAILS:**
-  - Destination: ${request.destination}
-  - Vibe: "${request.vibe}"
-  - Travelers: ${travelerDesc} (${request.travelers.adults} adults, ${request.travelers.children} children)
-  - Dates: ${request.dates.start} to ${request.dates.end} (${request.dates.duration} days)
-  - Budget: $${request.budget || 'Not specified'}
-  - Interests: ${request.interests.join(', ')}
-  - Must-Includes: ${request.mustIncludes.join(', ')}
-  - Preferred Transport: ${request.transport.join(', ')}
-  - Dietary Needs: ${request.dietary.join(', ')}
-
-  **STRUCTURE REMINDERS:**
-  - On the first day, include an 'arrival' type activity.
-  - On the last day, include a 'departure' type activity.
-  - Use 12-hour AM/PM time format.
-  - For the main 'coverImagePrompt', provide a single, detailed prompt for a beautiful stock photo that encapsulates the entire trip's vibe.
-  - Your entire response must be a single valid JSON object, without any surrounding text or markdown.
-`;
-  
-  try {
-    const response = await ai.models.generateContent({
-      // FIX: Use gemini-3-pro-preview for complex travel reasoning as per task guidelines.
-      model: 'gemini-3-pro-preview',
-      contents: prompt,
-      // FIX: Per @google/genai guidelines, responseMimeType and responseSchema should not be used with grounding tools like googleSearch.
-      config: { tools: [{ googleSearch: {} }] },
-    });
-    
-    // FIX: Per @google/genai guidelines, response.text is not guaranteed to be JSON when using grounding. Safely parsing.
-    let parsedPlan = {};
-    const text = response.text;
-    if (text) {
-      try {
-        parsedPlan = JSON.parse(text);
-      } catch (e) {
-        const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/);
-        if (jsonMatch && jsonMatch[1]) {
-          try {
-            parsedPlan = JSON.parse(jsonMatch[1]);
-          } catch (parseError) {
-            console.error("Failed to parse extracted JSON from trip plan:", parseError);
+const STRICT_JSON_SCHEMA = `
+{
+  "tripTitle": "string",
+  "destinationSummary": "string",
+  "tripDuration": "string",
+  "travelVibe": "string",
+  "intro": "string",
+  "days": [
+    {
+      "dayNumber": number,
+      "theme": "string",
+      "summary": "string",
+      "activities": [
+        {
+          "id": "string",
+          "time": "string (e.g. 09:00 AM)",
+          "durationMinutes": number,
+          "title": "string",
+          "description": "string",
+          "type": "sightseeing|food|nature|relax|culture|shopping|transport|other|arrival|departure",
+          "location": "string",
+          "lat": number,
+          "lng": number,
+          "priceLevel": "string (MUST provide range like '$25 - $45 pp')",
+          "rating": number,
+          "reviewCount": "string",
+          "imageUrl": "", 
+          "transportToNext": {
+            "mode": "string",
+            "duration": "string (e.g. '15 mins')",
+            "description": "string",
+            "cost": "string (e.g. '$5' or 'Free')"
           }
         }
-      }
+      ]
     }
-    return { plan: parsedPlan as TripPlan, groundingUrls: response.candidates?.[0]?.groundingMetadata?.groundingChunks || [] };
-  } catch (error) { throw error; }
-};
+  ],
+  "transportResources": [{ "type": "string (Taxi|Rideshare|Public Transit|Rental)", "name": "string", "contact": "string (REAL website URL or app link preferred, or real local phone number)", "notes": "string" }],
+  "importantContacts": [{ "role": "string", "name": "string", "phone": "string" }]
+}
+`;
 
-export const regenerateDayPlan = async (destination: string, vibe: string, dayNumber: number, existingDay: TripDay): Promise<TripDay> => {
-  const ai = getAiClient();
-  const prompt = `Smart Regenerate for Day ${dayNumber} in ${destination}. Current Vibe Engine™ setting: ${vibe}. 
-  Generate a new set of activities for this day that are different from the current ones but still follow the vibe. 
-  Maintain the 12h format and ensure logical travel flow. Return a single TripDay object as JSON.`;
-  
+const parseJsonFromText = (text: string) => {
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: (tripPlanSchema.properties!.days as any).items
-      }
-    });
-    return JSON.parse(response.text || '{}');
+    let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const startIdx = cleanText.indexOf('{');
+    const endIdx = cleanText.lastIndexOf('}');
+    if (startIdx === -1 || endIdx === -1) {
+      const arrStart = cleanText.indexOf('[');
+      const arrEnd = cleanText.lastIndexOf(']');
+      if (arrStart !== -1 && arrEnd !== -1) return JSON.parse(cleanText.substring(arrStart, arrEnd + 1));
+      throw new Error("No JSON found");
+    }
+    return JSON.parse(cleanText.substring(startIdx, endIdx + 1).replace(/,\s*([}\]])/g, '$1'));
   } catch (e) {
-    return existingDay;
+    throw new Error("AI returned malformed data.");
   }
 };
 
-export const fetchLiveContext = async (destination: string): Promise<LiveContext> => {
-  const ai = getAiClient();
-  const prompt = `Current weather, major news alerts, and trending local events for ${destination} today. Return a single valid JSON object only.`;
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      // FIX: Per @google/genai guidelines, responseMimeType and responseSchema should not be used with grounding tools like googleSearch.
-      config: {
-        tools: [{ googleSearch: {} }],
-      }
-    });
-    // FIX: Per @google/genai guidelines, response.text is not guaranteed to be JSON when using grounding. Safely parsing.
-    const text = response.text || '{}';
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/);
-      if (jsonMatch && jsonMatch[1]) {
-        try {
-          return JSON.parse(jsonMatch[1]);
-        } catch (parseError) {
-          console.error("Failed to parse extracted JSON from live context:", parseError);
-        }
-      }
-      return {};
-    }
-  } catch (e) { return {}; }
-};
-
-export const assistantChat = async (message: string, contextPlan: TripPlan): Promise<string> => {
-  const ai = getAiClient();
-  const chat = ai.chats.create({
-    model: 'gemini-3-flash-preview',
-    config: { systemInstruction: `You are the PlanBuddy AI assistant. Helping user with their itinerary for ${contextPlan.tripTitle}. Keep it brief.` }
+const getUserLocation = (): Promise<{ latitude: number, longitude: number } | null> => {
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+      () => resolve(null), { timeout: 5000 }
+    );
   });
-  const response = await chat.sendMessage({ message });
-  return response.text || "I'm here to help!";
 };
 
-export const getAlternativeActivities = async (destination: string, activity: DayActivity, dietary: string[]): Promise<DayActivity[]> => {
-  const ai = getAiClient();
-  const prompt = `3 alternatives for '${activity.title}' in ${destination}. Dietary: ${dietary.join(', ')}. Respond with a JSON array of activity objects only.`;
+/**
+ * Generates high-quality travel photography using Gemini 2.5 Flash Image.
+ * Optimized with descriptive prompts to look like TripAdvisor/Professional photography.
+ */
+export const generateImage = async (prompt: string, aspectRatio: '1:1' | '3:4' | '4:3' | '16:9' | '9:16' = '4:3'): Promise<string> => {
   try {
+    const ai = getAi();
+    // Enhanced prompt for TripAdvisor/Professional quality
+    const enhancedPrompt = `${prompt}. Professional travel photography, cinematic lighting, 8k resolution, National Geographic style, vibrant colors, realistic textures. ABSOLUTELY NO text, captions, watermarks, logos, or blurred edges. High-end real-world scenery.`;
+    
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: { parts: [{ text: enhancedPrompt }] },
+      config: { 
+        imageConfig: { aspectRatio } 
+      },
+    });
+    
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    }
+    throw new Error("No image data returned");
+  } catch (error: any) {
+    console.warn("Gemini Image generation failed, falling back to Unsplash service.", error);
+    // Use a high-quality dynamic Unsplash source as secondary fallback if AI generation fails
+    const keyword = encodeURIComponent(prompt.split(',')[0].replace(/[^a-zA-Z0-9 ]/g, ''));
+    return `https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1200&q=80`;
+  }
+};
+
+export const getTailoredInterests = async (destination: string): Promise<string[]> => {
+  const cacheKey = `interests_${destination}`;
+  if (sessionCache.has(cacheKey)) return sessionCache.get(cacheKey);
+  try {
+    const ai = getAi();
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `List 18 highly specific local travel interests for ${destination}. Format as comma-separated list with emojis.`,
+    });
+    const list = (response.text || "").split(',').map(i => i.trim()).filter(i => i.length > 0);
+    sessionCache.set(cacheKey, list);
+    return list;
+  } catch (e) { return ["🏛️ Local History", "🥘 Regional Cuisine", "🌿 Hidden Parks"]; }
+};
+
+export const generateTripPlan = async (request: TripRequest): Promise<{ plan: TripPlan, groundingUrls: any[] }> => {
+  const ai = getAi();
+  const location = await getUserLocation();
+  const flightText = request.flight.booked ? request.flight.legs.map(l => `Flight ${l.flightNumber}`).join(', ') : "No flights booked.";
+  const hotelText = request.accommodations.length > 0 ? request.accommodations.map(a => `Stay at ${a.hotelName}`).join(', ') : "No hotels booked.";
+
+  const prompt = `Act as a Senior Trip Planner with 20+ years of experience. Create a ${request.dates.duration}-day travel itinerary for ${request.destination}.
+  TRAVEL DATES: ${request.dates.start} to ${request.dates.end}.
+  USER DAILY RHYTHM: Start: ${request.timePreference.start}, Finish: ${request.timePreference.end}.
+  BUDGET: $${request.budget} ${request.budgetType}.
+  INTERESTS: ${request.interests.join(', ')}.
+  MUST INCLUDE: ${request.mustIncludes.join(', ')}.
+  LOGISTICS: Flights (${flightText}), Hotels (${hotelText}).
+  TRANSPORT PREFERENCE: ${request.transport.join(', ')}.
+
+  SENIOR PLANNER REQUIREMENTS:
+  1. DENSE ITINERARY: Fill the day with 4-6 distinct activities (e.g., Morning Coffee/Walk, Major Attraction, Authentic Lunch, Hidden Gem, Cultural Stop, Dinner). Do not leave empty time blocks.
+  2. ACCURATE BUDGETS: Every activity/meal MUST have a specific "priceLevel" range like "$20 - $50 pp". 
+  3. BUSINESS LINKS: In "transportResources", find and provide REAL local business names and ACTUAL clickable URLs (websites/app links) or real local phone numbers.
+  4. INTER-STOP LOGISTICS: In "transportToNext", provide specific estimated costs and durations based on user transportation preferences.
+  5. IMAGES: Set "imageUrl" to empty string (""). The frontend will generate professional TripAdvisor-quality photos based on your "title" and "location".
+  6. JSON OUTPUT ONLY: Use this schema: ${STRICT_JSON_SCHEMA}. No markdown text outside the JSON.`;
+
+  const hydratePlan = (plan: TripPlan) => {
+    plan.metadata = { ...plan.metadata, flights: request.flight, accommodations: request.accommodations, travelers: request.travelers, dates: request.dates, transportModes: request.transport, interests: request.interests, dietary: request.dietary, foodPreferences: request.foodPreferences, budget: request.budget, budgetType: request.budgetType, timePreference: request.timePreference };
+    return plan;
+  };
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview', // Upgraded to Pro for better reasoning and grounding
+      contents: prompt,
+      config: { 
+        systemInstruction: "Expert Senior Travel Planner. Rich 4-6 activity days. Real business links. Precise per-person budgets. No nulls.",
+        tools: [{ googleMaps: {} }, { googleSearch: {} }],
+        toolConfig: location ? { retrievalConfig: { latLng: location } } : undefined
+      },
+    });
+    const plan = parseJsonFromText(response.text || '') as TripPlan;
+    return { plan: hydratePlan(plan), groundingUrls: response.candidates?.[0]?.groundingMetadata?.groundingChunks || [] };
+  } catch (error) {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
-      // FIX: Per @google/genai guidelines, responseMimeType and responseSchema should not be used with grounding tools like googleSearch.
-      config: { tools: [{ googleSearch: {} }] },
+      config: { responseMimeType: 'application/json' },
     });
-    // FIX: Per @google/genai guidelines, response.text is not guaranteed to be JSON when using grounding. Safely parsing.
-    const text = response.text || '[]';
-    try {
-      return JSON.parse(text);
-    } catch (e) {
-      const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/);
-      if (jsonMatch && jsonMatch[1]) {
-        try {
-          return JSON.parse(jsonMatch[1]);
-        } catch (parseError) {
-          console.error("Failed to parse extracted JSON from alternatives:", parseError);
-        }
-      }
-      return [];
+    const plan = parseJsonFromText(response.text || '') as TripPlan;
+    return { plan: hydratePlan(plan), groundingUrls: [] };
+  }
+};
+
+export const regenerateDayPlan = async (destination: string, vibe: string, dayNumber: number, existingDay?: TripDay): Promise<TripDay> => {
+  const ai = getAi();
+  const prompt = `Regenerate Day ${dayNumber} for ${destination} with 4-6 diverse activities. Vibe: ${vibe}. Include per-person budget ranges and logistics. Set imageUrl to "". JSON only.`;
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: prompt,
+    config: { systemInstruction: "Senior planner mode. Output JSON Day object.", tools: [{ googleMaps: {} }, { googleSearch: {} }] },
+  });
+  return parseJsonFromText(response.text || '{}') as TripDay;
+};
+
+export const regenerateSingleActivity = async (destination: string, vibe: string, currentActivity: DayActivity): Promise<DayActivity> => {
+  const ai = getAi();
+  const prompt = `Find alternative for ${currentActivity.title} in ${destination}. Must include per-person budget range and transport next. Set imageUrl to "". JSON only.`;
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: prompt,
+    config: { systemInstruction: "Output JSON Activity object.", tools: [{ googleMaps: {} }, { googleSearch: {} }] },
+  });
+  return parseJsonFromText(response.text || '{}') as DayActivity;
+};
+
+export const fetchLiveContext = async (destination: string): Promise<LiveContext> => {
+  const ai = getAi();
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: `Weather and events in ${destination}. JSON: { weather: { temp, condition, icon }, events: [] }`,
+    config: { responseMimeType: 'application/json', tools: [{ googleSearch: {} }] }
+  });
+  return parseJsonFromText(response.text || '{}');
+};
+
+/**
+ * Handles AI concierge chat messages.
+ */
+export const assistantChat = async (message: string, plan: TripPlan): Promise<string> => {
+  const ai = getAi();
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: `Context: I am traveling on a trip titled "${plan.tripTitle}" to ${plan.destinationSummary}. It's a ${plan.metadata.dates.duration}-day trip. The vibe is ${plan.travelVibe}.\n\nUser Question: ${message}`,
+    config: {
+      systemInstruction: "You are a helpful travel concierge assistant for OpenTrip. Answer questions about the user's specific trip plan. Be concise, friendly, and helpful."
     }
-  } catch (e) { return []; }
+  });
+  return response.text || "I'm sorry, I couldn't process that request.";
 };

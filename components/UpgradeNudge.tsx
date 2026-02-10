@@ -16,7 +16,7 @@ export const UpgradeNudge: React.FC<UpgradeNudgeProps> = ({ featureName, onUpgra
           <h4 className="font-bold text-xl">{featureName}</h4>
         </div>
         <p className="text-sm opacity-90 mb-6 leading-relaxed">
-          Upgrade to PlanBuddy Pro to unlock this feature and many more, including multi-day editing, full trip rewinds, and pro exports.
+          Upgrade to OpenTrip Pro to unlock this feature and many more, including multi-day editing, full trip rewinds, and pro exports.
         </p>
         <div className="flex gap-4">
           <button 

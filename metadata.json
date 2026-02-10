@@ -1,7 +1,8 @@
 {
-  "name": "PlanBuddy",
+  "name": "OpenTrip",
   "description": "An AI-powered travel planning assistant with real-time updates, collaboration, and budget tracking.",
   "requestFramePermissions": [
-    "geolocation"
+    "geolocation",
+    "camera"
   ]
 }

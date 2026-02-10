@@ -1,42 +1,39 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { TripRequest, Traveler, FlightLeg } from '../types';
-import { suggestVibes } from '../services/gemini';
 
-// FIX: Declare global window properties with strict matching for the AI Studio environment.
-declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
-
-  interface Window {
-    google: any;
-    aistudio?: AIStudio;
-    gm_authFailure?: () => void;
-    initGoogleAutocomplete?: () => void;
-  }
-}
+import React, { useState, useEffect } from 'react';
+import { TripRequest, FlightLeg, AccommodationDetails, Traveler } from '../types';
+import { getTailoredInterests } from '../services/gemini';
 
 interface TripFormProps {
   onSubmit: (request: TripRequest) => void;
   isLoading: boolean;
 }
 
-const INTEREST_OPTIONS = [
-  "🏛️ Historical sites", "🖼️ Art & Museums", "🍷 Wine & Gastronomy", "🍽️ Culinary Experiences",
-  "🌿 Nature & Parks", "⛰️ Hiking & Outdoors", "🏗️ Modern Architecture", "🎭 Theatre & Shows",
-  "🛍️ Shopping", "🧸 Kid-friendly", "🚴 Biking Tours", "🏖️ Beach Relaxation",
-  "🎉 Nightlife & Bars", "📸 Photography", "🎶 Live Music", "👨‍🍳 Cooking Classes",
-  "🛍️ Local Markets", "💆 Wellness & Spa"
+const TRANSPORT_OPTIONS = ["🚶 Walking", "🚇 Public transport", "🚕 Taxi / Uber", "🚗 Rental car", "🚲 Bike Rental", "⛵ Ferry / Boat"];
+const DIETARY_OPTIONS = ["🥕 Vegetarian", "🌿 Vegan", "🌾 Gluten-Free", "🥜 Nut Allergy", "🐟 Pescatarian", "🥛 Lactose Intolerant", "🍽️ No dietary needs"];
+const FOOD_OPTIONS = ["🍱 Asian", "🍔 Fast Food", "🍝 Fine Dining", "☕ Cafés", "🍢 Street Food", "🌮 Local Specialties", "🥂 Bars & Pubs", "🥐 Bakeries", "🍕 Italian", "🍛 Indian", "🥙 Middle Eastern"];
+const LOADING_TIPS = [
+  "💡 Tip: Tuesday is often the cheapest day to fly.",
+  "💡 Tip: Roll your clothes to save space and prevent wrinkles.",
+  "💡 Tip: Download offline maps before you leave Wi-Fi.",
+  "💡 Tip: Scan your passport and email it to yourself just in case.",
+  "💡 Tip: Pack a portable charger – maps drain battery fast!",
+  "💡 Tip: Learn 'Hello' and 'Thank You' in the local language.",
+  "💡 Tip: Notify your bank about your travel dates."
 ];
 
-const TRANSPORT_OPTIONS = ["🚶 Walking", "🚇 Public transport", "🚕 Taxi / Uber", "🚗 Rental car"];
-const DIETARY_OPTIONS = ["🥕 Vegetarian", "🌿 Vegan", "🌾 Gluten-Free", "🥜 Nut Allergy", "🐟 Pescatarian", "🍽️ No dietary needs"];
-
-const DEFAULT_VIBES = [
-  "✨ Modern & Sleek", "🎸 Bohemian Rhapsody", "🔥 High-Octane Adventure", 
-  "🌿 Chill & Slow", "🍜 Local Immersion", "💎 Luxury & Pampering"
+const STEP_IMAGES = [
+  "https://images.unsplash.com/photo-1449034446853-66c86144b0ad?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1436491865332-7a61a109c0f3?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1530789253388-582c481c54b0?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1527631746610-bca00a040d60?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1503220317375-aaad61436b1b?auto=format&fit=crop&w=1200&q=80",
+  "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?auto=format&fit=crop&w=1200&q=80"
 ];
+
+const FALLBACK_STEP_IMAGE = "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1200&q=80";
 
 const formatDateLocal = (date: Date) => {
     const year = date.getFullYear();
@@ -45,579 +42,517 @@ const formatDateLocal = (date: Date) => {
     return `${year}-${month}-${day}`;
 };
 
-interface CalendarPickerProps {
-  startDate: string;
-  endDate: string;
-  onChange: (start: string, end: string) => void;
-}
-
-const CalendarPicker: React.FC<CalendarPickerProps> = ({ startDate, endDate, onChange }) => {
-  const [currentDate, setCurrentDate] = useState(() => startDate ? new Date(startDate + 'T00:00:00') : new Date());
-  
-  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  
-  const getDaysArray = (year: number, month: number) => {
+const MonthView: React.FC<{ 
+    year: number; month: number; startDate: string; endDate: string; onDateClick: (d: Date) => void; 
+}> = ({ year, month, startDate, endDate, onDateClick }) => {
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const firstDay = new Date(year, month, 1).getDay();
     const days = [];
     for (let i = 0; i < firstDay; i++) days.push(null);
     for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
-    return days;
-  };
 
-  const days = getDaysArray(currentDate.getFullYear(), currentDate.getMonth());
+    return (
+        <div className="flex-1 min-w-[280px]">
+            <h4 className="text-center font-bold text-stone-700 mb-3">{monthNames[month]} {year}</h4>
+            <div className="grid grid-cols-7 mb-1 text-center text-[10px] font-bold text-stone-400 uppercase">
+                {['S','M','T','W','T','F','S'].map(d => <div key={d}>{d}</div>)}
+            </div>
+            <div className="grid grid-cols-7 gap-y-1">
+                {days.map((date, idx) => {
+                    if (!date) return <div key={idx} />;
+                    const t = date.getTime();
+                    const s = startDate ? new Date(startDate + 'T00:00:00').getTime() : 0;
+                    const e = endDate ? new Date(endDate + 'T00:00:00').getTime() : 0;
+                    const selected = t === s || t === e;
+                    const inRange = startDate && endDate && t > s && t < e;
+                    return (
+                        <div key={idx} className="relative p-0.5 cursor-pointer" onClick={() => onDateClick(date)}>
+                            <div className={`absolute inset-y-0 w-full ${inRange ? 'bg-indigo-50' : ''} ${t === s && endDate ? 'left-1/2 bg-indigo-50 rounded-l-md' : ''} ${t === e && startDate ? 'right-1/2 bg-indigo-50 rounded-r-md' : ''}`}></div>
+                            <div className={`relative w-8 h-8 mx-auto flex items-center justify-center text-xs font-medium rounded-full transition-all z-10 ${selected ? 'bg-indigo-600 text-white shadow-md' : inRange ? 'text-indigo-900' : 'text-stone-700 hover:bg-stone-100'}`}>
+                                {date.getDate()}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
+const CalendarPicker: React.FC<{ startDate: string; endDate: string; onChange: (s: string, e: string) => void; }> = ({ startDate, endDate, onChange }) => {
+  const [viewDate, setViewDate] = useState(new Date());
+  const nextMonth = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1);
 
   const handleDateClick = (date: Date) => {
-    const dateStr = formatDateLocal(date);
-    if (!startDate || (startDate && endDate)) {
-       onChange(dateStr, '');
-    } else {
-       if (new Date(dateStr) < new Date(startDate)) {
-          onChange(dateStr, '');
-       } else {
-          onChange(startDate, dateStr);
-       }
+    const ds = formatDateLocal(date);
+    if (!startDate || (startDate && endDate)) onChange(ds, '');
+    else {
+      if (new Date(ds) < new Date(startDate)) onChange(ds, '');
+      else onChange(startDate, ds);
     }
   };
 
-  const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
-  const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
-
-  const isSelected = (d: Date) => {
-      const t = d.getTime();
-      const s = startDate ? new Date(startDate + 'T00:00:00').getTime() : 0;
-      const e = endDate ? new Date(endDate + 'T00:00:00').getTime() : 0;
-      return t === s || t === e;
-  };
-  
-  const isInRange = (d: Date) => {
-      if (!startDate || !endDate) return false;
-      const t = d.getTime();
-      const s = new Date(startDate + 'T00:00:00').getTime();
-      const e = new Date(endDate + 'T00:00:00').getTime();
-      return t > s && t < e;
-  };
-
-  const isStart = (d: Date) => startDate && d.getTime() === new Date(startDate + 'T00:00:00').getTime();
-  const isEnd = (d: Date) => endDate && d.getTime() === new Date(endDate + 'T00:00:00').getTime();
-
   return (
     <div className="bg-white p-6 rounded-3xl border border-stone-200 shadow-sm select-none animate-fadeIn">
-        <div className="flex justify-between items-center mb-6">
-            <button onClick={(e) => { e.preventDefault(); prevMonth(); }} className="p-2 hover:bg-stone-100 rounded-full text-stone-400 transition">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            </button>
-            <span className="text-lg font-bold text-stone-800">
-                {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
-            </span>
-            <button onClick={(e) => { e.preventDefault(); nextMonth(); }} className="p-2 hover:bg-stone-100 rounded-full text-stone-400 transition">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-            </button>
-        </div>
-        <div className="grid grid-cols-7 mb-2">
-            {['S','M','T','W','T','F','S'].map(day => (
-                <div key={day} className="text-center text-xs font-bold text-stone-400 mb-2">{day}</div>
-            ))}
-        </div>
-        <div className="grid grid-cols-7 gap-y-2">
-            {days.map((date, idx) => {
-                if (!date) return <div key={idx} />;
-                const d = new Date(date);
-                d.setHours(0,0,0,0);
-                const selected = isSelected(d);
-                const inRange = isInRange(d);
-                const start = isStart(d);
-                const end = isEnd(d);
-                return (
-                    <div key={idx} className="relative p-0.5 cursor-pointer" onClick={() => handleDateClick(d)}>
-                         <div className={`absolute inset-y-0 w-full transition-all ${inRange ? 'bg-indigo-50' : ''} ${start && endDate ? 'left-1/2 bg-indigo-50 rounded-l-md' : 'rounded-full'} ${end && startDate ? 'right-1/2 bg-indigo-50 rounded-r-md' : 'rounded-full'}`}></div>
-                         <div className={`relative w-9 h-9 mx-auto flex items-center justify-center text-sm font-medium rounded-full transition-all z-10 ${selected ? 'bg-indigo-600 text-white shadow-md transform scale-105' : inRange ? 'text-indigo-900' : 'text-stone-700 hover:bg-stone-100'}`}>
-                             {date.getDate()}
-                         </div>
-                    </div>
-                );
-            })}
-        </div>
+      <div className="flex justify-between items-center mb-6">
+        <button onClick={(e) => { e.preventDefault(); setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1)); }} className="p-2 hover:bg-stone-100 rounded-full">←</button>
+        <span className="text-xs font-bold text-stone-400 uppercase tracking-widest">Select Trip Window</span>
+        <button onClick={(e) => { e.preventDefault(); setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1)); }} className="p-2 hover:bg-stone-100 rounded-full">→</button>
+      </div>
+      <div className="flex flex-col md:flex-row gap-8 overflow-x-auto">
+        <MonthView year={viewDate.getFullYear()} month={viewDate.getMonth()} startDate={startDate} endDate={endDate} onDateClick={handleDateClick} />
+        <MonthView year={nextMonth.getFullYear()} month={nextMonth.getMonth()} startDate={startDate} endDate={endDate} onDateClick={handleDateClick} />
+      </div>
     </div>
   );
 };
 
 export const TripForm: React.FC<TripFormProps> = ({ onSubmit, isLoading }) => {
   const [step, setStep] = useState(1);
-  const [reviewImage, setReviewImage] = useState<string | null>(null);
-  const [aiVibes, setAiVibes] = useState<string[]>([]);
-  const [isSuggestingVibes, setIsSuggestingVibes] = useState(false);
-  const [isMapsEnabled, setIsMapsEnabled] = useState(true);
-  const [mapsRecoveryKey, setMapsRecoveryKey] = useState(0); 
-  
+  const [interestOptions, setInterestOptions] = useState<string[]>([]);
+  const [isTailoringInterests, setIsTailoringInterests] = useState(false);
+  const [currentTipIndex, setCurrentTipIndex] = useState(0);
+
+  // Initial Form State
   const [formData, setFormData] = useState<TripRequest>({
-    destination: '',
-    vibe: '',
-    budget: 2000,
+    destination: '', vibe: [], budget: 2000, budgetType: 'total',
+    flightBudget: 500, includeFlightBudget: false,
+    hotelBudget: 800, includeHotelBudget: false,
     dates: { start: '', end: '', duration: 3 },
-    timePreference: { start: '09:00', end: '22:00' },
+    timePreference: { start: '09:00', end: '21:00' },
     flight: { booked: false, legs: [] },
     travelers: { type: 'Solo', adults: 1, children: 0, details: [{ id: '1', name: 'Traveler 1', isChild: false }] },
-    transport: [],
-    interests: [],
-    mustIncludes: [],
-    accommodation: { booked: false, hotelName: '', address: '', checkIn: '', checkOut: '', confirmationNumber: '' },
-    dietary: []
+    transport: [], interests: [], mustIncludes: [],
+    accommodations: [],
+    dietary: [], foodPreferences: []
   });
+
+  // Cycle tips
+  useEffect(() => {
+    if (isLoading) {
+      const interval = setInterval(() => {
+        setCurrentTipIndex(prev => (prev + 1) % LOADING_TIPS.length);
+      }, 3500);
+      return () => clearInterval(interval);
+    }
+  }, [isLoading]);
+
+  const updateField = (f: keyof TripRequest, v: any) => setFormData(p => ({ ...p, [f]: v }));
   
-  const [mustIncludeInput, setMustIncludeInput] = useState('');
-  const destinationInputRef = useRef<HTMLInputElement>(null);
-  const autocompleteRef = useRef<any>(null);
+  const toggleArray = (f: 'transport'|'interests'|'dietary'|'foodPreferences'|'vibe', v: string) => {
+    setFormData(p => {
+      const list = p[f] as string[];
+      return { ...p, [f]: list.includes(v) ? list.filter(i => i !== v) : [...list, v] };
+    });
+  };
 
-  const handleAuthFailure = useCallback(() => {
-    console.error("Google Maps API: Authentication Failure. Entering Manual Entry Mode.");
-    setIsMapsEnabled(false);
-    // VITAL: Trigger a fresh input DOM element to stop the library from freezing the field
-    setMapsRecoveryKey(prev => prev + 1); 
-    if (autocompleteRef.current) {
-      try {
-        window.google.maps.event.clearInstanceListeners(autocompleteRef.current);
-      } catch (e) {}
-      autocompleteRef.current = null;
-    }
-  }, []);
-
-  const initializeAutocomplete = useCallback(() => {
-    if (!window.google || !window.google.maps || !destinationInputRef.current || !isMapsEnabled) {
-      return;
-    }
-
-    try {
-      if (autocompleteRef.current) return;
-
-      autocompleteRef.current = new window.google.maps.places.Autocomplete(
-        destinationInputRef.current,
-        { types: ['(cities)'] }
-      );
-
-      autocompleteRef.current.addListener('place_changed', () => {
-        const place = autocompleteRef.current?.getPlace();
-        if (place && place.formatted_address) {
-          setFormData(prev => ({ ...prev, destination: place.formatted_address }));
-        }
+  const handleNext = () => {
+    if (step === 1 && formData.destination.trim()) {
+      setIsTailoringInterests(true);
+      getTailoredInterests(formData.destination).then((tailored) => {
+        setInterestOptions(tailored);
+        setIsTailoringInterests(false);
       });
-
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition((position) => {
-          if (!autocompleteRef.current) return;
-          const geolocation = { lat: position.coords.latitude, lng: position.coords.longitude };
-          const circle = new window.google.maps.Circle({ center: geolocation, radius: position.coords.accuracy });
-          autocompleteRef.current.setBounds(circle.getBounds());
-        }, undefined, { timeout: 3000 });
-      }
-    } catch (e) {
-      console.warn("Google Autocomplete Initialization guarded:", e);
-      setIsMapsEnabled(false);
     }
-  }, [isMapsEnabled]);
+    setStep(s => s + 1);
+  };
 
-  useEffect(() => {
-    // Setup global callbacks for the Maps JSONP-style initialization
-    window.gm_authFailure = handleAuthFailure;
-    window.initGoogleAutocomplete = initializeAutocomplete;
-
-    if (!window.google || !window.google.maps) {
-      const script = document.createElement('script');
-      // loading=async with a callback is the most robust way to initialize Maps
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.API_KEY}&libraries=places&callback=initGoogleAutocomplete&loading=async`;
-      script.async = true;
-      script.defer = true;
-      script.onerror = () => handleAuthFailure();
-      document.head.appendChild(script);
-    } else {
-      initializeAutocomplete();
-    }
+  const setTravelerType = (type: string) => {
+    let adults = 1;
+    let children = 0;
+    if (type === 'Couple') { adults = 2; children = 0; }
+    else if (type === 'Family') { adults = 2; children = 1; }
+    else if (type === 'Friends') { adults = 4; children = 0; }
     
-    return () => {
-      delete window.gm_authFailure;
-      delete window.initGoogleAutocomplete;
-      if (autocompleteRef.current && window.google) {
-        try {
-          window.google.maps.event.clearInstanceListeners(autocompleteRef.current);
-        } catch (e) {}
-      }
-      const pacContainers = document.getElementsByClassName('pac-container');
-      for (let i = 0; i < pacContainers.length; i++) {
-        pacContainers[i].remove();
-      }
-    };
-  }, [handleAuthFailure, initializeAutocomplete]);
-
-  const handleSelectKey = async () => {
-    if (window.aistudio) {
-      try {
-        await window.aistudio.openSelectKey();
-        window.location.reload(); 
-      } catch (e) {
-        console.error("Key selection failed", e);
-      }
-    }
-  };
-
-  const handleRangeChange = (start: string, end: string) => {
-    const newDates = { ...formData.dates, start, end };
-    if (start && end) {
-      const s = new Date(start);
-      const e = new Date(end);
-      const diffTime = Math.abs(e.getTime() - s.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-      newDates.duration = diffDays > 0 ? diffDays : 1;
-    } else {
-        newDates.duration = 1;
-    }
-    setFormData({ ...formData, dates: newDates });
-  };
-
-  const fetchVibes = async () => {
-    const destinationValue = destinationInputRef.current?.value || formData.destination;
-    if (!destinationValue) return;
-    setIsSuggestingVibes(true);
-    const suggestions = await suggestVibes(destinationValue, formData.interests);
-    setAiVibes(suggestions);
-    setIsSuggestingVibes(false);
-  };
-
-  const addFlightLeg = () => {
-    const newLeg: FlightLeg = {
-      id: Math.random().toString(36).substr(2, 9),
-      flightNumber: '',
-      departureAirport: '',
-      departureTime: '',
-      arrivalAirport: '',
-      arrivalTime: '',
-      confirmationNumber: ''
-    };
-    setFormData(prev => ({
-      ...prev,
-      flight: { ...prev.flight, legs: [...prev.flight.legs, newLeg] }
-    }));
-  };
-
-  const updateFlightLeg = (id: string, field: keyof FlightLeg, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      flight: {
-        ...prev.flight,
-        legs: prev.flight.legs.map(leg => leg.id === id ? { ...leg, [field]: value } : leg)
-      }
-    }));
-  };
-
-  const updateField = (field: keyof TripRequest, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const toggleArrayItem = (field: 'transport' | 'interests' | 'dietary', item: string) => {
-    setFormData(prev => {
-      const list = prev[field];
-      return {
-        ...prev,
-        [field]: list.includes(item) ? list.filter(i => i !== item) : [...list, item]
-      };
+    updateField('travelers', { 
+        type, 
+        adults, 
+        children, 
+        details: generateTravelerList(adults, children) 
     });
   };
 
-  const addMustInclude = () => {
-    if (mustIncludeInput.trim()) {
-      setFormData(prev => ({ ...prev, mustIncludes: [...prev.mustIncludes, mustIncludeInput.trim()] }));
-      setMustIncludeInput('');
-    }
-  };
-
-  const updateTravelerCounts = (adults: number, children: number) => {
-    const total = adults + children;
+  const generateTravelerList = (adults: number, children: number) => {
     const newDetails: Traveler[] = [];
-    for (let i = 0; i < total; i++) {
-      if (formData.travelers.details[i]) {
-        newDetails.push(formData.travelers.details[i]);
+    for (let i = 0; i < adults; i++) {
+        newDetails.push({ id: `a-${i}`, name: `Adult ${i+1}`, isChild: false });
+    }
+    for (let i = 0; i < children; i++) {
+        newDetails.push({ id: `c-${i}`, name: `Child ${i+1}`, isChild: true });
+    }
+    return newDetails;
+  };
+
+  const updateTravelerCounts = (deltaAdult: number, deltaChild: number) => {
+      const newAdults = Math.max(1, formData.travelers.adults + deltaAdult);
+      const newChildren = Math.max(0, formData.travelers.children + deltaChild);
+      const currentAdults = formData.travelers.details.filter(t => !t.isChild);
+      const currentChildren = formData.travelers.details.filter(t => t.isChild);
+      
+      let nextAdults = [...currentAdults];
+      if (newAdults > currentAdults.length) {
+          for(let i = currentAdults.length; i < newAdults; i++) nextAdults.push({ id: `a-${Date.now()}-${i}`, name: `Adult ${i+1}`, isChild: false });
       } else {
-        newDetails.push({ 
-          id: Math.random().toString(36).substr(2, 9), 
-          name: `Traveler ${i + 1}`, 
-          isChild: i >= adults 
-        });
+          nextAdults = nextAdults.slice(0, newAdults);
       }
-    }
-    setFormData({
-      ...formData,
-      travelers: { ...formData.travelers, adults, children, details: newDetails }
+
+      let nextChildren = [...currentChildren];
+      if (newChildren > currentChildren.length) {
+          for(let i = currentChildren.length; i < newChildren; i++) nextChildren.push({ id: `c-${Date.now()}-${i}`, name: `Child ${i+1}`, isChild: true });
+      } else {
+          nextChildren = nextChildren.slice(0, newChildren);
+      }
+
+      updateField('travelers', {
+          ...formData.travelers,
+          type: 'Custom',
+          adults: newAdults,
+          children: newChildren,
+          details: [...nextAdults, ...nextChildren]
+      });
+  };
+
+  const updateTravelerName = (id: string, name: string) => {
+      const newDetails = formData.travelers.details.map(t => t.id === id ? { ...t, name } : t);
+      updateField('travelers', { ...formData.travelers, details: newDetails });
+  };
+
+  const addFlight = () => setFormData(p => ({ 
+      ...p, 
+      flight: { 
+          ...p.flight, 
+          legs: [...p.flight.legs, { id: Math.random().toString(36).substr(2,9), flightNumber: '', departureAirport: '', departureDate: '', departureTime: '', arrivalAirport: '', arrivalDate: '', arrivalTime: '', confirmationNumber: '' }] 
+      } 
+  }));
+  
+  const updateFlight = (id: string, up: Partial<FlightLeg>) => setFormData(p => ({ ...p, flight: { ...p.flight, legs: p.flight.legs.map(l => l.id === id ? {...l, ...up} : l) } }));
+  const removeFlight = (id: string) => setFormData(p => ({ ...p, flight: { ...p.flight, legs: p.flight.legs.filter(l => l.id !== id) } }));
+
+  const addAcc = () => setFormData(p => ({ 
+      ...p, 
+      accommodations: [...p.accommodations, { id: Math.random().toString(36).substr(2,9), booked: false, hotelName: '', address: '', checkInDate: '', checkInTime: '', checkOutDate: '', checkOutTime: '', confirmationNumber: '', cost: '' }] 
+  }));
+  
+  const updateAcc = (id: string, up: any) => {
+    setFormData(p => {
+        const newAccs = p.accommodations.map(a => a.id === id ? {...a, ...up} : a);
+        return { ...p, accommodations: newAccs };
     });
-  };
-
-  const updateTravelerDetail = (index: number, field: keyof Traveler, value: any) => {
-      const newDetails = [...formData.travelers.details];
-      newDetails[index] = { ...newDetails[index], [field]: value };
-      setFormData({ ...formData, travelers: { ...formData.travelers, details: newDetails } });
-  };
-
-  useEffect(() => {
-    const destinationValue = destinationInputRef.current?.value || formData.destination;
-    if (step === 99 && destinationValue && !reviewImage) {
-      setReviewImage(`https://source.unsplash.com/800x600/?${encodeURIComponent(destinationValue)}`);
-    }
-  }, [step, formData.destination, reviewImage]);
-
-  const handleFinalSubmit = () => {
-    const finalRequest = { ...formData };
-    if (destinationInputRef.current) {
-      finalRequest.destination = destinationInputRef.current.value;
-    }
-    onSubmit(finalRequest);
   };
 
   const renderStep = () => {
-    switch (step) {
-      case 1:
-        return (
-          <div className="space-y-6 animate-fadeIn">
-            <div className="flex justify-between items-center">
-               <h2 className="text-3xl font-bold text-stone-800">Where to? 🌍</h2>
-               {!isMapsEnabled && (
-                 <button 
-                  onClick={handleSelectKey}
-                  className="text-[10px] font-bold bg-amber-500 text-white px-3 py-1.5 rounded-full hover:bg-amber-600 transition shadow-lg flex items-center gap-2"
-                 >
-                   <span>🔑</span>
-                   Fix Maps Key
-                 </button>
-               )}
-            </div>
-            
-            <div className="relative">
-              {/* ATOMIC RECOVERY: The key prop forces a clean DOM re-mount if Maps crashes.
-                  This purges corrupted library state and stops the freezing. */}
-              <input 
-                key={`dest-input-${isMapsEnabled ? 'google' : 'manual'}-${mapsRecoveryKey}`}
-                ref={destinationInputRef}
-                type="text" 
-                defaultValue={formData.destination}
-                placeholder="e.g. Banff, Canada" 
-                className={`w-full px-4 py-3 rounded-2xl border bg-white focus:border-sky-400 outline-none transition-all ${!isMapsEnabled ? 'border-amber-300 ring-2 ring-amber-50' : 'border-stone-200'}`} 
-              />
-              {!isMapsEnabled && (
-                <div className="mt-2 flex items-center gap-2 text-amber-600">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                  <p className="text-[10px] font-bold uppercase tracking-tight">Manual entry mode (Maps Key Restricted)</p>
+    switch(step) {
+      case 1: return (
+        <div className="space-y-6">
+          <h2 className="text-3xl font-bold text-stone-800">Where to? 🌍</h2>
+          <input type="text" value={formData.destination} onChange={e => updateField('destination', e.target.value)} placeholder="e.g. Paris, Tokyo, Bali" className="w-full px-6 py-4 rounded-2xl border-2 border-stone-100 focus:border-indigo-400 outline-none transition-all shadow-sm font-medium" />
+          
+          <div className="bg-stone-50 p-6 rounded-3xl border border-stone-200">
+             <div className="flex justify-between items-center mb-3">
+                <label className="text-xs font-bold text-stone-400 uppercase tracking-widest">Total trip budget</label>
+                <div className="flex bg-white rounded-lg p-1 border">
+                   <button onClick={() => updateField('budgetType', 'total')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition ${formData.budgetType === 'total' ? 'bg-indigo-600 text-white shadow-md' : 'text-stone-500'}`}>Total</button>
+                   <button onClick={() => updateField('budgetType', 'perPerson')} className={`px-4 py-1.5 rounded-md text-xs font-bold transition ${formData.budgetType === 'perPerson' ? 'bg-indigo-600 text-white shadow-md' : 'text-stone-500'}`}>Per Person</button>
                 </div>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label className="text-xs font-bold text-stone-400 uppercase tracking-widest">Estimated Budget ($)</label>
-              <input type="number" className="w-full p-3 border rounded-2xl outline-none focus:border-sky-400" value={formData.budget} onChange={e => updateField('budget', Number(e.target.value))} />
-            </div>
-            <CalendarPicker startDate={formData.dates.start} endDate={formData.dates.end} onChange={handleRangeChange} />
-          </div>
-        );
-      case 2:
-        return (
-          <div className="space-y-6 animate-fadeIn">
-             <h2 className="text-3xl font-bold text-stone-800">Flights booked? ✈️</h2>
-             <div className="flex gap-4">
-                <button onClick={() => { setFormData({...formData, flight: { ...formData.flight, booked: true }}); if (formData.flight.legs.length === 0) addFlightLeg(); }} className={`flex-1 px-6 py-4 rounded-2xl border-2 font-semibold transition-all duration-200 ${formData.flight.booked ? 'bg-sky-50 border-sky-500 text-sky-700 shadow-sm' : 'bg-white border-stone-100 text-stone-500 hover:border-stone-300 hover:bg-stone-50'}`}>Yes, booked!</button>
-                <button onClick={() => setFormData({...formData, flight: { ...formData.flight, booked: false }})} className={`flex-1 px-6 py-4 rounded-2xl border-2 font-semibold transition-all duration-200 ${!formData.flight.booked ? 'bg-sky-50 border-sky-500 text-sky-700 shadow-sm' : 'bg-white border-stone-100 text-stone-500 hover:border-stone-300 hover:bg-stone-50'}`}>Not yet</button>
              </div>
-             {formData.flight.booked && (
-               <div className="space-y-4">
-                  {formData.flight.legs.map((leg, index) => (
-                    <div key={leg.id} className="bg-stone-50 p-6 rounded-3xl border border-stone-100 relative animate-slideDown shadow-sm space-y-3">
-                       <input type="text" placeholder="Flight Number" className="w-full p-3 rounded-xl border" value={leg.flightNumber} onChange={e => updateFlightLeg(leg.id, 'flightNumber', e.target.value)} />
-                       <input type="text" placeholder="Confirmation Number" className="w-full p-3 rounded-xl border bg-white" value={leg.confirmationNumber || ''} onChange={e => updateFlightLeg(leg.id, 'confirmationNumber', e.target.value)} />
-                       <div className="grid grid-cols-2 gap-4">
-                          <input type="text" placeholder="From" className="p-3 rounded-xl border bg-white" value={leg.departureAirport} onChange={e => updateFlightLeg(leg.id, 'departureAirport', e.target.value)} />
-                          <input type="text" placeholder="To" className="p-3 rounded-xl border bg-white" value={leg.arrivalAirport} onChange={e => updateFlightLeg(leg.id, 'arrivalAirport', e.target.value)} />
-                       </div>
-                    </div>
-                  ))}
-                  <button onClick={addFlightLeg} className="w-full py-4 rounded-2xl border-2 border-dashed border-stone-300 text-stone-500 font-bold">+ Add Connecting Flight</button>
-               </div>
-             )}
-          </div>
-        );
-      case 3:
-        return (
-          <div className="space-y-6 animate-fadeIn">
-            <h2 className="text-3xl font-bold text-stone-800">Who's going? 👥</h2>
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <label className="text-xs font-bold text-stone-400 uppercase mb-1 block">Adults</label>
-                <input type="number" className="w-full p-3 border rounded-xl" value={formData.travelers.adults} onChange={e => updateTravelerCounts(Number(e.target.value), formData.travelers.children)} />
-              </div>
-              <div className="flex-1">
-                <label className="text-xs font-bold text-stone-400 uppercase mb-1 block">Children</label>
-                <input type="number" className="w-full p-3 border rounded-xl" value={formData.travelers.children} onChange={e => updateTravelerCounts(formData.travelers.adults, Number(e.target.value))} />
-              </div>
-            </div>
-            <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-              {formData.travelers.details.map((traveler, idx) => (
-                <div key={traveler.id} className="p-4 bg-stone-50 rounded-2xl border space-y-2">
-                  <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest">{traveler.isChild ? 'Child' : 'Adult'} Traveler {idx + 1}</p>
-                  <input type="text" placeholder="Full Name" className="w-full p-2 rounded-lg border bg-white text-sm" value={traveler.name} onChange={e => updateTravelerDetail(idx, 'name', e.target.value)} />
+             <div className="relative mb-6">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 font-bold">$</span>
+                <input type="number" className="w-full pl-8 p-3 border border-stone-200 rounded-2xl outline-none focus:border-indigo-400 font-black text-2xl bg-white" value={formData.budget} onChange={e => updateField('budget', Number(e.target.value))} />
+             </div>
+
+             <div className="border-t border-stone-200 pt-6 space-y-4">
+                <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest">Daily Rhythm 🕒</p>
+                <div className="grid grid-cols-2 gap-4">
+                   <div>
+                      <label className="text-[10px] font-bold text-stone-400 ml-2 mb-1 block uppercase">Prefered Start Time</label>
+                      <input 
+                        type="time" 
+                        value={formData.timePreference.start} 
+                        onChange={e => updateField('timePreference', { ...formData.timePreference, start: e.target.value })}
+                        className="w-full p-3 bg-white border border-stone-200 rounded-xl font-bold text-stone-700 focus:border-indigo-400 outline-none" 
+                      />
+                   </div>
+                   <div>
+                      <label className="text-[10px] font-bold text-stone-400 ml-2 mb-1 block uppercase">Prefered End Time</label>
+                      <input 
+                        type="time" 
+                        value={formData.timePreference.end} 
+                        onChange={e => updateField('timePreference', { ...formData.timePreference, end: e.target.value })}
+                        className="w-full p-3 bg-white border border-stone-200 rounded-xl font-bold text-stone-700 focus:border-indigo-400 outline-none" 
+                      />
+                   </div>
                 </div>
+             </div>
+          </div>
+
+          <CalendarPicker startDate={formData.dates.start} endDate={formData.dates.end} onChange={(s, e) => {
+            const dur = s && e ? Math.ceil(Math.abs(new Date(e).getTime() - new Date(s).getTime()) / (1000*60*60*24)) + 1 : 1;
+            updateField('dates', { start: s, end: e, duration: dur });
+          }} />
+        </div>
+      );
+      case 2: return (
+        <div className="space-y-6 animate-fadeIn">
+          <h2 className="text-3xl font-bold text-stone-800">Flights ✈️</h2>
+          <div className="flex gap-4 p-2 bg-stone-100 rounded-2xl">
+            <button onClick={() => updateField('flight', {...formData.flight, booked: true})} className={`flex-1 py-3 rounded-xl font-bold ${formData.flight.booked ? 'bg-indigo-600 text-white shadow-md' : 'text-stone-500 hover:text-stone-700'}`}>Booked</button>
+            <button onClick={() => updateField('flight', {...formData.flight, booked: false})} className={`flex-1 py-3 rounded-xl font-bold ${!formData.flight.booked ? 'bg-indigo-600 text-white shadow-md' : 'text-stone-500 hover:text-stone-700'}`}>Not Yet</button>
+          </div>
+          
+          {formData.flight.booked ? (
+             <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                {formData.flight.legs.map((leg, i) => (
+                    <div key={leg.id} className="bg-stone-50 p-6 rounded-[2.5rem] border border-stone-200 relative">
+                        <button onClick={() => removeFlight(leg.id)} className="absolute top-4 right-4 text-stone-300 hover:text-rose-500">✕</button>
+                        <h4 className="font-bold text-sm text-stone-400 uppercase tracking-widest mb-4">Flight {i + 1}</h4>
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                            <input placeholder="Flight No." value={leg.flightNumber} onChange={e => updateFlight(leg.id, {flightNumber: e.target.value})} className="p-3 rounded-xl border text-sm" />
+                            <input placeholder="Conf. #" value={leg.confirmationNumber} onChange={e => updateFlight(leg.id, {confirmationNumber: e.target.value})} className="p-3 rounded-xl border text-sm" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                            <input placeholder="Dep Airport" value={leg.departureAirport} onChange={e => updateFlight(leg.id, {departureAirport: e.target.value})} className="p-3 rounded-xl border text-sm" />
+                            <input placeholder="Arr Airport" value={leg.arrivalAirport} onChange={e => updateFlight(leg.id, {arrivalAirport: e.target.value})} className="p-3 rounded-xl border text-sm" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                             <div>
+                                <label className="text-[10px] font-bold text-stone-400 ml-2">Departure</label>
+                                <input type="datetime-local" value={`${leg.departureDate}T${leg.departureTime}`} onChange={e => {
+                                    const [d, t] = e.target.value.split('T');
+                                    updateFlight(leg.id, {departureDate: d, departureTime: t});
+                                }} className="w-full p-3 rounded-xl border text-xs" />
+                             </div>
+                             <div>
+                                <label className="text-[10px] font-bold text-stone-400 ml-2">Arrival</label>
+                                <input type="datetime-local" value={`${leg.arrivalDate}T${leg.arrivalTime}`} onChange={e => {
+                                    const [d, t] = e.target.value.split('T');
+                                    updateFlight(leg.id, {arrivalDate: d, arrivalTime: t});
+                                }} className="w-full p-3 rounded-xl border text-xs" />
+                             </div>
+                        </div>
+                    </div>
+                ))}
+                <button onClick={addFlight} className="w-full py-4 border-2 border-dashed border-stone-300 rounded-[2rem] text-stone-400 font-bold hover:bg-stone-100">+ Add Flight Leg</button>
+                <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm mt-4">
+                   <div className="flex justify-between items-center">
+                      <label className="text-xs font-bold text-stone-400 uppercase tracking-widest">Total Flight Cost</label>
+                      <div className="relative w-32">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-bold">$</span>
+                        <input type="number" className="w-full pl-6 p-2 border border-stone-200 rounded-xl outline-none focus:border-indigo-400 font-bold text-lg bg-stone-50 text-right" value={formData.flightBudget} onChange={e => updateField('flightBudget', Number(e.target.value))} />
+                      </div>
+                   </div>
+                </div>
+             </div>
+          ) : (
+             <div className="animate-fadeIn space-y-4">
+                <div className="p-8 bg-sky-50 rounded-[2.5rem] border-2 border-dashed border-sky-200 text-center">
+                   <span className="text-4xl block mb-4">✈️</span>
+                   <p className="font-bold text-sky-800 text-lg">We'll help you plan for flights.</p>
+                </div>
+                <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm">
+                   <div className="flex justify-between items-center mb-4">
+                      <label className="text-xs font-bold text-stone-400 uppercase tracking-widest">Est. Flight Budget</label>
+                      <button onClick={() => updateField('includeFlightBudget', !formData.includeFlightBudget)} className={`w-10 h-6 rounded-full relative transition-colors ${formData.includeFlightBudget ? 'bg-indigo-600' : 'bg-stone-200'}`}>
+                         <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${formData.includeFlightBudget ? 'left-5' : 'left-1'}`}></div>
+                      </button>
+                   </div>
+                   <div className={`relative ${formData.includeFlightBudget ? 'opacity-100' : 'opacity-40'}`}>
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 font-bold">$</span>
+                      <input type="number" disabled={!formData.includeFlightBudget} className="w-full pl-8 p-3 border border-stone-200 rounded-2xl outline-none focus:border-indigo-400 font-bold text-xl bg-stone-50" value={formData.flightBudget} onChange={e => updateField('flightBudget', Number(e.target.value))} />
+                   </div>
+                </div>
+             </div>
+          )}
+        </div>
+      );
+      case 3: return (
+        <div className="space-y-6">
+          <h2 className="text-3xl font-bold text-stone-800">Travelers 👥</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            {['Solo', 'Couple', 'Family', 'Friends'].map(t => (
+              <button key={t} onClick={() => setTravelerType(t)} className={`py-4 rounded-2xl border-2 font-bold transition ${formData.travelers.type === t ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-stone-100 text-stone-500 hover:border-stone-200'}`}>{t}</button>
+            ))}
+          </div>
+          <div className="bg-white p-6 rounded-[2.5rem] border border-stone-100 shadow-sm">
+             <div className="flex gap-4 mb-6">
+                 <div className="flex-1 p-4 bg-stone-50 rounded-2xl border border-stone-100 flex flex-col items-center">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-2">Adults</span>
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => updateTravelerCounts(-1, 0)} className="w-8 h-8 rounded-full bg-white border shadow-sm hover:bg-stone-100 font-bold">-</button>
+                        <span className="text-xl font-black">{formData.travelers.adults}</span>
+                        <button onClick={() => updateTravelerCounts(1, 0)} className="w-8 h-8 rounded-full bg-white border shadow-sm hover:bg-stone-100 font-bold">+</button>
+                    </div>
+                 </div>
+                 <div className="flex-1 p-4 bg-stone-50 rounded-2xl border border-stone-100 flex flex-col items-center">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-2">Children</span>
+                    <div className="flex items-center gap-4">
+                        <button onClick={() => updateTravelerCounts(0, -1)} className="w-8 h-8 rounded-full bg-white border shadow-sm hover:bg-stone-100 font-bold">-</button>
+                        <span className="text-xl font-black">{formData.travelers.children}</span>
+                        <button onClick={() => updateTravelerCounts(0, 1)} className="w-8 h-8 rounded-full bg-white border shadow-sm hover:bg-stone-100 font-bold">+</button>
+                    </div>
+                 </div>
+             </div>
+             <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+                {formData.travelers.details.map((t) => (
+                    <div key={t.id} className="flex items-center gap-3">
+                        <span className="w-6 text-xl">{t.isChild ? '👶' : '👤'}</span>
+                        <input value={t.name} onChange={(e) => updateTravelerName(t.id, e.target.value)} className="flex-1 p-3 bg-stone-50 border border-stone-100 rounded-xl text-sm font-bold focus:border-indigo-300 outline-none" placeholder={t.isChild ? "Child Name" : "Adult Name"} />
+                    </div>
+                ))}
+             </div>
+          </div>
+        </div>
+      );
+      case 4: return (
+        <div className="space-y-6">
+          <h2 className="text-3xl font-bold text-stone-800">Transport 🚇</h2>
+          <div className="grid grid-cols-2 gap-4">
+            {TRANSPORT_OPTIONS.map(o => (
+              <button key={o} onClick={() => toggleArray('transport', o)} className={`p-5 rounded-3xl border-2 text-sm font-bold transition-all text-left ${formData.transport.includes(o) ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg scale-[1.02]' : 'bg-stone-50 border-stone-50 text-stone-500 hover:border-stone-200'}`}>{o}</button>
+            ))}
+          </div>
+        </div>
+      );
+      case 5: return (
+        <div className="space-y-6">
+          <h2 className="text-3xl font-bold text-stone-800">Tailored Interests ❤️</h2>
+          {isTailoringInterests ? (
+            <div className="flex flex-col items-center justify-center py-20 animate-pulse">
+               <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+               <p className="text-stone-400 font-bold uppercase tracking-widest text-xs">Fetching local gems for {formData.destination}...</p>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2 max-h-[400px] overflow-y-auto p-2 custom-scrollbar">
+              {interestOptions.map(o => (
+                <button key={o} onClick={() => toggleArray('interests', o)} className={`px-5 py-3 rounded-full border-2 text-xs font-bold transition-all ${formData.interests.includes(o) ? 'bg-indigo-600 border-indigo-600 text-white shadow-md' : 'bg-white border-stone-100 text-stone-500 hover:border-stone-200'}`}>{o}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+      case 6: return (
+        <div className="space-y-8">
+          <h2 className="text-3xl font-bold text-stone-800">Food & Diet 🍱</h2>
+          <div>
+            <h4 className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-4">Cuisine Preferences</h4>
+            <div className="flex flex-wrap gap-2">
+              {FOOD_OPTIONS.map(o => (
+                <button key={o} onClick={() => toggleArray('foodPreferences', o)} className={`px-4 py-2 rounded-xl border-2 text-xs font-bold transition ${formData.foodPreferences.includes(o) ? 'bg-stone-900 border-stone-900 text-white' : 'bg-white border-stone-100 text-stone-500 hover:border-stone-200'}`}>{o}</button>
               ))}
             </div>
           </div>
-        );
-      case 4:
-        return (
-           <div className="space-y-6 animate-fadeIn">
-             <h2 className="text-3xl font-bold text-stone-800">Transport Style 🚌</h2>
-             <div className="grid grid-cols-2 gap-4">
-                {TRANSPORT_OPTIONS.map(opt => (
-                  <button key={opt} onClick={() => toggleArrayItem('transport', opt)} className={`p-5 rounded-2xl border-2 transition-all ${formData.transport.includes(opt) ? 'bg-sky-50 border-sky-400' : 'bg-white border-stone-100'}`}>{opt}</button>
-                ))}
-             </div>
-           </div>
-        );
-      case 5:
-        return (
-          <div className="space-y-6 animate-fadeIn">
-            <h2 className="text-3xl font-bold text-stone-800">Interests ❤️</h2>
-            <div className="flex flex-wrap gap-3">
-               {INTEREST_OPTIONS.map(opt => (
-                 <button key={opt} onClick={() => toggleArrayItem('interests', opt)} className={`px-4 py-2 rounded-full border transition-all ${formData.interests.includes(opt) ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-white border-stone-200'}`}>{opt}</button>
-               ))}
+          <div>
+            <h4 className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-4">Dietary Restrictions</h4>
+            <div className="flex flex-wrap gap-2">
+              {DIETARY_OPTIONS.map(o => (
+                <button key={o} onClick={() => toggleArray('dietary', o)} className={`px-4 py-2 rounded-xl border-2 text-xs font-bold transition ${formData.dietary.includes(o) ? 'bg-rose-500 border-rose-500 text-white shadow-sm' : 'bg-white border-stone-100 text-stone-500 hover:border-stone-200'}`}>{o}</button>
+              ))}
             </div>
           </div>
-        );
-      case 6:
-        return (
-          <div className="space-y-6 animate-fadeIn">
-            <h2 className="text-3xl font-bold text-stone-800">Must-Sees 📍</h2>
-            <div className="flex gap-2">
-               <input type="text" value={mustIncludeInput} onChange={e => setMustIncludeInput(e.target.value)} placeholder="e.g. Eiffel Tower" className="flex-1 p-3 border border-stone-200 rounded-2xl outline-none" />
-               <button onClick={addMustInclude} className="bg-sky-500 text-white px-6 rounded-2xl font-bold">Add</button>
-            </div>
-            <div className="flex flex-wrap gap-2 mt-4">
-               {formData.mustIncludes.map((item, idx) => (
-                  <span key={idx} className="bg-sky-100 text-sky-800 px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2">{item}
-                     <button onClick={() => setFormData(prev => ({...prev, mustIncludes: prev.mustIncludes.filter(i => i !== item)}))} className="font-bold">×</button>
-                  </span>
-               ))}
-            </div>
-          </div>
-        );
-       case 7:
-        return (
-          <div className="space-y-6 animate-fadeIn">
-             <h2 className="text-3xl font-bold text-stone-800">Accommodation 🏨</h2>
-             <div className="flex gap-4">
-                <button onClick={() => setFormData({...formData, accommodation: { ...formData.accommodation, booked: true }})} className={`flex-1 px-6 py-4 rounded-2xl border-2 font-bold ${formData.accommodation.booked ? 'bg-sky-50 border-sky-500' : 'bg-white'}`}>Booked</button>
-                <button onClick={() => setFormData({...formData, accommodation: { ...formData.accommodation, booked: false }})} className={`flex-1 px-6 py-4 rounded-2xl border-2 font-bold ${!formData.accommodation.booked ? 'bg-sky-50 border-sky-500' : 'bg-white'}`}>Need Booking</button>
-             </div>
-             {formData.accommodation.booked && (
-               <div className="space-y-3 bg-stone-50 p-6 rounded-3xl border animate-slideDown shadow-sm">
-                  <input type="text" placeholder="Hotel Name" className="w-full p-3 border rounded-xl" value={formData.accommodation.hotelName} onChange={e => updateField('accommodation', {...formData.accommodation, hotelName: e.target.value})} />
-                  <input type="text" placeholder="Hotel Address" className="w-full p-3 border rounded-xl" value={formData.accommodation.address} onChange={e => updateField('accommodation', {...formData.accommodation, address: e.target.value})} />
-                  <div className="grid grid-cols-2 gap-3">
-                    <input type="date" className="p-3 border rounded-xl" value={formData.accommodation.checkIn} onChange={e => updateField('accommodation', {...formData.accommodation, checkIn: e.target.value})} />
-                    <input type="date" className="p-3 border rounded-xl" value={formData.accommodation.checkOut} onChange={e => updateField('accommodation', {...formData.accommodation, checkOut: e.target.value})} />
-                  </div>
-                  <input type="text" placeholder="Confirmation #" className="w-full p-3 border rounded-xl" value={formData.accommodation.confirmationNumber} onChange={e => updateField('accommodation', {...formData.accommodation, confirmationNumber: e.target.value})} />
-               </div>
-             )}
-             {!formData.accommodation.booked && (
-               <div className="bg-sky-50 p-4 rounded-2xl border border-sky-100 flex items-center gap-3">
-                 <span className="text-xl">💡</span>
-                 <p className="text-xs font-bold text-sky-800">Book with <span className="underline">OpenStay.io</span> to save money on your {formData.destination || 'trip'} stay!</p>
-               </div>
-             )}
-          </div>
-        );
-      case 8:
-         return (
-            <div className="space-y-6 animate-fadeIn">
-               <h2 className="text-3xl font-bold text-stone-800">Dietary Needs 🥗</h2>
-               <div className="flex flex-wrap gap-3">
-                  {DIETARY_OPTIONS.map(opt => (
-                  <button key={opt} onClick={() => toggleArrayItem('dietary', opt)} className={`px-5 py-3 rounded-full border transition-all ${formData.dietary.includes(opt) ? 'bg-lime-50 border-lime-400 text-lime-800' : 'bg-white'}`}>{opt}</button>
-                  ))}
-               </div>
-            </div>
-         );
-      case 9:
-         return (
-            <div className="space-y-6 animate-fadeIn">
-               <div className="flex justify-between items-end mb-2">
-                  <h2 className="text-3xl font-bold text-stone-800">Trip Vibe ✨</h2>
-                  <button onClick={fetchVibes} disabled={isSuggestingVibes} className="text-xs font-bold text-sky-600 bg-sky-50 px-3 py-1.5 rounded-full transition hover:scale-105 active:scale-95 disabled:opacity-50">
-                    {isSuggestingVibes ? 'Suggesting...' : 'Magic Suggest 🪄'}
-                  </button>
-               </div>
-               <div className="flex flex-wrap gap-2 mb-4">
-                  {(aiVibes.length > 0 ? aiVibes : DEFAULT_VIBES).map(v => (
-                     <button key={v} onClick={() => updateField('vibe', v)} className={`px-4 py-2 rounded-full border text-xs font-bold transition-all ${formData.vibe === v ? 'bg-stone-900 text-white' : 'bg-white text-stone-600'}`}>{v}</button>
-                  ))}
-               </div>
-               <textarea placeholder="Atmosphere..." className="w-full p-4 border rounded-2xl outline-none focus:border-sky-400" value={formData.vibe} onChange={e => updateField('vibe', e.target.value)} rows={3} />
-            </div>
-         );
-      case 99:
-        return (
-           <div className="space-y-6 animate-fadeIn text-center">
-              <h2 className="text-4xl font-extrabold text-stone-800">Ready! 🎉</h2>
-              <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-stone-100">
-                 <div className="h-56 bg-stone-200">
-                    {reviewImage && <img src={reviewImage} alt="Preview" className="w-full h-full object-cover" />}
-                 </div>
-                 <div className="p-8">
-                    <h3 className="text-3xl font-bold">{formData.destination}</h3>
-                    <p className="opacity-70">{formData.dates.duration} Days • {formData.travelers.adults + formData.travelers.children} Travelers</p>
-                    <p className="text-xs font-bold text-stone-400 mt-2">Budget: ${formData.budget}</p>
-                 </div>
+        </div>
+      );
+      case 7: return (
+        <div className="space-y-6">
+          <h2 className="text-3xl font-bold text-stone-800">Accommodations 🏨</h2>
+          
+          <div className="bg-white p-6 rounded-3xl border border-stone-100 shadow-sm mb-4">
+              <div className="flex justify-between items-center mb-4">
+                <label className="text-xs font-bold text-stone-400 uppercase tracking-widest">
+                    Total Accommodations Budget
+                </label>
+                <button onClick={() => updateField('includeHotelBudget', !formData.includeHotelBudget)} className={`w-10 h-6 rounded-full relative transition-colors ${formData.includeHotelBudget ? 'bg-indigo-600' : 'bg-stone-200'}`}>
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${formData.includeHotelBudget ? 'left-5' : 'left-1'}`}></div>
+                </button>
               </div>
-              <button onClick={handleFinalSubmit} disabled={isLoading} className="w-full mt-6 py-5 bg-sky-500 text-white rounded-2xl font-bold text-xl shadow-xl transition transform active:scale-[0.98]">Generate Itinerary</button>
-           </div>
-        );
+              <div className={`relative ${formData.includeHotelBudget ? 'opacity-100' : 'opacity-40'}`}>
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400 font-bold">$</span>
+                <input type="number" className="w-full pl-8 p-3 border border-stone-200 rounded-2xl outline-none focus:border-indigo-400 font-bold text-xl bg-stone-50" value={formData.hotelBudget} onChange={e => updateField('hotelBudget', Number(e.target.value))} />
+              </div>
+          </div>
+
+          <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+            {formData.accommodations.map((a) => (
+              <div key={a.id} className="p-6 bg-stone-50 rounded-[2.5rem] border border-stone-200 relative shadow-sm">
+                <button onClick={() => setFormData(p=>({...p, accommodations: p.accommodations.filter(x=>x.id!==a.id)}))} className="absolute top-6 right-6 text-stone-300 hover:text-rose-500 transition">✕</button>
+                <div className="space-y-3">
+                    <input type="text" placeholder="Hotel Name" className="w-full p-4 border rounded-2xl bg-white text-sm focus:border-indigo-400 outline-none font-bold" value={a.hotelName} onChange={e=>updateAcc(a.id, {hotelName: e.target.value})} />
+                    <input type="text" placeholder="Full Address" className="w-full p-4 border rounded-2xl bg-white text-sm focus:border-indigo-400 outline-none" value={a.address} onChange={e=>updateAcc(a.id, {address: e.target.value})} />
+                    <input type="text" placeholder="Confirmation #" className="w-full p-3 border rounded-xl bg-white text-xs" value={a.confirmationNumber} onChange={e=>updateAcc(a.id, {confirmationNumber: e.target.value})} />
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                           <label className="text-[10px] font-bold text-stone-400 ml-2">Check In</label>
+                           <input type="datetime-local" value={`${a.checkInDate}T${a.checkInTime}`} onChange={e => {
+                                const [d, t] = e.target.value.split('T');
+                                updateAcc(a.id, {checkInDate: d, checkInTime: t});
+                           }} className="w-full p-3 rounded-xl border text-xs bg-white" />
+                        </div>
+                        <div>
+                           <label className="text-[10px] font-bold text-stone-400 ml-2">Check Out</label>
+                           <input type="datetime-local" value={`${a.checkOutDate}T${a.checkOutTime}`} onChange={e => {
+                                const [d, t] = e.target.value.split('T');
+                                updateAcc(a.id, {checkOutDate: d, checkOutTime: t});
+                           }} className="w-full p-3 rounded-xl border text-xs bg-white" />
+                        </div>
+                    </div>
+                </div>
+              </div>
+            ))}
+            <button onClick={addAcc} className="w-full py-5 border-2 border-dashed border-stone-300 rounded-[2.5rem] text-stone-400 font-bold hover:bg-stone-100 hover:border-indigo-300 transition shadow-sm">+ Add Booked Hotel</button>
+          </div>
+        </div>
+      );
+      case 8: return (
+        <div className="space-y-6">
+          <h2 className="text-3xl font-bold text-stone-800">Must Includes ✨</h2>
+          <textarea className="w-full h-48 p-6 bg-stone-50 border-2 border-stone-100 rounded-3xl focus:bg-white focus:border-indigo-400 outline-none transition shadow-sm font-medium text-sm" placeholder="e.g. Dinner at the Eiffel Tower, Visit the Louvre..." value={formData.mustIncludes.join('\n')} onChange={e => updateField('mustIncludes', e.target.value.split('\n'))} />
+        </div>
+      );
+      case 9: return (
+        <div className="space-y-8 animate-fadeIn">
+          <h2 className="text-3xl font-bold text-stone-800">Final Review 🔍</h2>
+          <div className="bg-stone-900 p-10 rounded-[2.5rem] text-white shadow-2xl relative overflow-hidden text-center">
+             <h3 className="text-3xl font-black mb-2 tracking-tight">{formData.destination || 'Your Journey'}</h3>
+             <p className="text-sm opacity-80 font-medium">📅 {formData.dates.duration} Days • 👥 {formData.travelers.adults + formData.travelers.children} Travelers</p>
+             {formData.flight.booked && <div className="mt-4 bg-white/10 p-2 rounded-xl text-xs font-bold inline-block">✈️ Flights Booked</div>}
+             {formData.accommodations.length > 0 && <div className="mt-4 ml-2 bg-white/10 p-2 rounded-xl text-xs font-bold inline-block">🏨 Hotels Booked</div>}
+          </div>
+        </div>
+      );
       default: return null;
     }
   };
 
-  const nextStep = () => {
-    if (step === 1) {
-        const destinationValue = destinationInputRef.current?.value || '';
-        if (!destinationValue.trim()) {
-            alert('Please enter a destination to continue.');
-            return;
-        }
-        updateField('destination', destinationValue);
-    }
-    setStep(prev => prev === 9 ? 99 : prev + 1);
-  };
-  const prevStep = () => setStep(prev => prev === 99 ? 9 : prev - 1);
-
-  if (isLoading) {
-      return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-50/90 backdrop-blur-md">
-              <div className="bg-white p-8 rounded-3xl shadow-2xl text-center border animate-slideUp">
-                  <div className="w-16 h-16 border-4 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                  <h3 className="text-2xl font-bold text-stone-800 mb-2">Planning your trip...</h3>
-                  <p className="text-sm text-stone-500">Checking flights, weather, and hidden gems.</p>
-              </div>
-          </div>
-      )
-  }
+  if (isLoading) return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/95 backdrop-blur-md">
+      <div className="bg-white p-12 rounded-[3rem] shadow-2xl text-center max-w-md w-full animate-slideUp relative overflow-hidden">
+        <div className="w-20 h-20 border-8 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mx-auto mb-8"></div>
+        <h3 className="text-2xl font-black text-stone-900 mb-2 tracking-tight">Designing Your Trip...</h3>
+        <p className="text-stone-500 font-medium mb-8">This will take a minute or two to design the best trip!</p>
+        <div className="bg-stone-50 p-6 rounded-2xl border border-stone-100 h-24 flex items-center justify-center">
+           <p className="text-sm font-bold text-indigo-600 animate-pulse transition-all duration-500">{LOADING_TIPS[currentTipIndex]}</p>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="max-w-xl mx-auto">
-      <div className="flex gap-2 mb-10 px-2">
-         {[1,2,3,4,5,6,7,8,9].map(s => (
-            <div key={s} className={`h-1.5 flex-1 rounded-full ${s <= (step === 99 ? 9 : step) ? 'bg-sky-400' : 'bg-stone-200'}`} />
-         ))}
+    <div className="max-w-4xl mx-auto p-4 animate-fadeIn">
+      <div className="flex gap-2 mb-10">
+        {[1,2,3,4,5,6,7,8,9].map(s => <div key={s} className={`h-1.5 flex-1 rounded-full transition-all duration-700 ${s <= step ? 'bg-indigo-500 shadow-sm shadow-indigo-200' : 'bg-stone-200'}`} />)}
       </div>
-      <div className="bg-white p-8 md:p-10 rounded-[2rem] shadow-sm border border-stone-100 min-h-[450px] flex flex-col justify-between">
-         <div className="flex-1">{renderStep()}</div>
-         {step !== 99 && (
-            <div className="flex justify-between mt-10 pt-6 border-t">
-               <button onClick={prevStep} disabled={step === 1} className="px-6 py-3 text-stone-400 font-bold hover:text-stone-600 transition">Back</button>
-               <button onClick={nextStep} className="bg-stone-900 text-white px-10 py-3 rounded-xl font-bold hover:bg-black transition shadow-lg">Next</button>
-            </div>
-         )}
+      <div className="bg-white rounded-[3rem] shadow-2xl border border-stone-100 overflow-hidden min-h-[600px] flex flex-col relative">
+        <div className="h-48 md:h-64 relative overflow-hidden bg-stone-100">
+           <img src={STEP_IMAGES[step - 1]} alt="Step Visual" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = FALLBACK_STEP_IMAGE; }} />
+        </div>
+        <div className="p-10 md:p-14 flex-1 flex flex-col justify-between">
+           <div className="flex-1 w-full max-w-2xl mx-auto">{renderStep()}</div>
+           <div className="flex justify-between mt-12 pt-8 border-t border-stone-50 items-center">
+              <button onClick={() => setStep(s => s - 1)} disabled={step === 1} className={`px-8 py-3 font-black text-sm uppercase tracking-widest transition ${step === 1 ? 'opacity-0 pointer-events-none' : 'text-stone-400 hover:text-stone-900'}`}>Back</button>
+              <button onClick={() => step === 9 ? onSubmit(formData) : handleNext()} className="bg-stone-900 text-white px-12 py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl hover:bg-black transition-all">
+                {step === 9 ? 'Generate Itinerary' : 'Next'}
+              </button>
+           </div>
+        </div>
       </div>
     </div>
   );
