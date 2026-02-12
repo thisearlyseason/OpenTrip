@@ -118,7 +118,8 @@ export const generateTripPlan = async (request: TripRequest): Promise<{ plan: Tr
   2. TRANSIT: suggest optimal mode (e.g. Subway, Walking) between EVERY activity in "transportToNext".
   3. RESOURCES: Provide 10 local transport resources (apps, taxi URLs, transit maps) in "transportResources".
   4. LIVE DATA: Search for specific events happening during these dates.
-  5. JSON SCHEMA: ${STRICT_JSON_SCHEMA}`;
+  5. JSON SCHEMA: ${STRICT_JSON_SCHEMA}.
+  6. IMPORTANT: Always set "actualSpent" to 0 for all activities.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -160,7 +161,7 @@ export const regenerateDayPlan = async (destination: string, vibe: string, dayNu
   const ai = getAi();
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Regenerate Day ${dayNumber} for ${destination}. Vibe: ${vibe}. Currency: ${currency}. Return JSON matching TripDay schema.`,
+    contents: `Regenerate Day ${dayNumber} for ${destination}. Vibe: ${vibe}. Currency: ${currency}. Return JSON matching TripDay schema. Ensure actualSpent is 0.`,
     config: { responseMimeType: 'application/json' },
   });
   return parseJsonFromText(response.text || '{}') as TripDay;
@@ -170,7 +171,18 @@ export const regenerateSingleActivity = async (destination: string, vibe: string
   const ai = getAi();
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: `Find realistic alternative for ${currentActivity.title} in ${destination}. Match DayActivity schema. Return JSON.`,
+    contents: `Find realistic alternative for ${currentActivity.title} in ${destination}. Match DayActivity schema (including lat, lng, and actualSpent: 0). Return JSON.`,
+    config: { responseMimeType: 'application/json' },
+  });
+  return parseJsonFromText(response.text || '{}') as DayActivity;
+};
+
+export const generateActivityFromPrompt = async (destination: string, activityDescription: string, currency: string): Promise<DayActivity> => {
+  const ai = getAi();
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: `The user wants to add a stop to their itinerary in ${destination}: "${activityDescription}". 
+    Create a DayActivity object in JSON format with realistic title, description, type, location, website, phone, cost, imagePrompt, and CRITICALLY, valid lat/lng coordinates and actualSpent: 0.`,
     config: { responseMimeType: 'application/json' },
   });
   return parseJsonFromText(response.text || '{}') as DayActivity;

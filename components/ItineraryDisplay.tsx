@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { TripPlan, DayActivity, TripDay, FlightLeg, AccommodationDetails } from '../types';
 import { TripDayCard } from './TripDayCard';
@@ -156,7 +157,7 @@ export const ItineraryDisplay: React.FC<ItineraryDisplayProps> = ({
   return (
     <div className="max-w-6xl mx-auto animate-slideUp relative pb-20 px-4">
       {canUndo && isPro && (
-        <button onClick={onUndo} className="fixed bottom-24 right-6 z-50 bg-white text-stone-900 border border-stone-200 px-4 py-2 rounded-full shadow-2xl font-bold text-xs flex items-center gap-2 hover:bg-stone-50 transition">Undo Edit 🌀</button>
+        <button onClick={onUndo} className="fixed bottom-24 right-6 z-50 bg-white text-stone-900 border border-stone-200 px-4 py-2 rounded-full shadow-2xl font-normal text-xs flex items-center gap-2 hover:bg-stone-50 transition">Undo Edit 🌀</button>
       )}
 
       {/* Hero */}
@@ -167,19 +168,19 @@ export const ItineraryDisplay: React.FC<ItineraryDisplayProps> = ({
            <div className="absolute bottom-0 left-0 right-0 p-8 md:p-12 text-white flex flex-col gap-6 z-10">
               <div className="w-full">
                 {isEditingTitle ? (
-                  <input autoFocus value={plan.tripTitle} onChange={(e) => handleUpdateTitle(e.target.value)} onBlur={() => setIsEditingTitle(false)} onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)} className="text-4xl md:text-6xl font-black bg-transparent border-b-2 border-white/50 outline-none w-full text-white" />
+                  <input autoFocus value={plan.tripTitle} onChange={(e) => handleUpdateTitle(e.target.value)} onBlur={() => setIsEditingTitle(false)} onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)} className="text-4xl md:text-6xl font-bold bg-transparent border-b-2 border-white/50 outline-none w-full text-white" />
                 ) : (
-                  <h1 onClick={() => setIsEditingTitle(true)} className="text-4xl md:text-6xl font-black drop-shadow-xl hover:text-stone-200 transition-colors cursor-pointer decoration-dotted underline-offset-8 hover:underline decoration-white/30">{plan.tripTitle}</h1>
+                  <h1 onClick={() => setIsEditingTitle(true)} className="text-4xl md:text-6xl font-bold drop-shadow-xl hover:text-stone-200 transition-colors cursor-pointer decoration-dotted underline-offset-8 hover:underline decoration-white/30">{plan.tripTitle}</h1>
                 )}
                 <div className="flex flex-wrap gap-3 items-center mt-6">
-                  <span className="bg-white/20 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20 font-bold text-xs shadow-md">{plan.travelVibe || 'Journey'} 🌿</span>
-                  <span className="bg-white/20 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20 font-bold text-xs shadow-md">{plan.metadata?.dates?.duration || 'Multi'} Days</span>
-                  <span className="bg-indigo-500/30 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20 font-bold text-xs shadow-md flex items-center gap-2">
+                  <span className="bg-white/20 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20 font-normal text-xs shadow-md">{plan.travelVibe || 'Journey'} 🌿</span>
+                  <span className="bg-white/20 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20 font-normal text-xs shadow-md">{plan.metadata?.dates?.duration || 'Multi'} Days</span>
+                  <span className="bg-indigo-500/30 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/20 font-normal text-xs shadow-md flex items-center gap-2">
                     📅 {formatDateRange(plan.metadata.dates.start, plan.metadata.dates.end)}
                   </span>
                 </div>
                 <div className="bg-black/20 backdrop-blur-md p-6 rounded-3xl border border-white/10 max-w-4xl mt-6">
-                  <p onClick={() => setIsIntroExpanded(!isIntroExpanded)} className={`text-sm md:text-base text-stone-100 font-medium leading-relaxed cursor-pointer transition-all ${isIntroExpanded ? '' : 'line-clamp-3 md:line-clamp-none'}`}>{plan.intro}</p>
+                  <p onClick={() => setIsIntroExpanded(!isIntroExpanded)} className={`text-sm md:text-base text-stone-100 font-normal leading-relaxed cursor-pointer transition-all ${isIntroExpanded ? '' : 'line-clamp-3 md:line-clamp-none'}`}>{plan.intro}</p>
                 </div>
               </div>
            </div>
@@ -193,7 +194,7 @@ export const ItineraryDisplay: React.FC<ItineraryDisplayProps> = ({
           <div className="flex justify-center my-10 overflow-x-auto px-2">
             <div className="bg-white dark:bg-stone-900 p-1.5 rounded-2xl shadow-sm border dark:border-stone-800 flex gap-1 whitespace-nowrap">
                 {['itinerary', 'map', 'budget', 'transport'].map(tab => (
-                  <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-6 py-3 rounded-xl font-bold text-sm uppercase tracking-widest transition ${activeTab === tab ? 'bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 shadow-lg' : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-300'}`}>{tab}</button>
+                  <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-6 py-3 rounded-xl font-normal text-sm uppercase tracking-widest transition ${activeTab === tab ? 'bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 shadow-lg' : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-300'}`}>{tab}</button>
                 ))}
             </div>
           </div>
@@ -223,7 +224,7 @@ export const ItineraryDisplay: React.FC<ItineraryDisplayProps> = ({
                     />
                     {!isPro && day.dayNumber > 1 && (
                       <div className="absolute inset-0 bg-stone-50/60 dark:bg-stone-950/60 backdrop-blur-[2px] z-10 flex flex-col items-center justify-center rounded-[2.5rem] p-10 text-center border-2 border-dashed border-stone-200 dark:border-stone-800">
-                         <button onClick={onUpgrade} className="bg-indigo-600 text-white px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:scale-105 transition">Unlock Day {day.dayNumber} 💎</button>
+                         <button onClick={onUpgrade} className="bg-indigo-600 text-white px-10 py-4 rounded-2xl font-normal text-sm uppercase tracking-widest shadow-2xl hover:scale-105 transition">Unlock Day {day.dayNumber} 💎</button>
                       </div>
                     )}
                   </div>
@@ -236,14 +237,14 @@ export const ItineraryDisplay: React.FC<ItineraryDisplayProps> = ({
             <div className="bg-white dark:bg-stone-900 rounded-[2.5rem] p-8 shadow-xl animate-fadeIn space-y-8 border dark:border-stone-800">
               <div className="flex flex-col items-center gap-6">
                 <div className="text-center">
-                  <h3 className="text-2xl font-black text-stone-900 dark:text-stone-100 mb-1">Route Explorer 🗺️</h3>
-                  <p className="text-stone-400 text-xs font-bold uppercase tracking-widest">Select a day to isolate stops and optimize travel flow</p>
+                  <h3 className="text-2xl font-bold text-stone-900 dark:text-stone-100 mb-1">Route Explorer 🗺️</h3>
+                  <p className="text-stone-400 text-xs font-normal uppercase tracking-widest">Select a day to isolate stops and optimize travel flow</p>
                 </div>
                 
                 <div className="flex flex-wrap justify-center gap-2 w-full max-w-3xl">
                    <button 
                      onClick={() => setMapActiveDayIndex(-1)}
-                     className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${mapActiveDayIndex === -1 ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg scale-105' : 'bg-stone-50 dark:bg-stone-800 border-stone-100 dark:border-stone-700 text-stone-400 hover:border-stone-200 hover:text-stone-700 dark:hover:text-stone-200'}`}
+                     className={`px-5 py-2.5 rounded-xl text-[10px] font-normal uppercase tracking-widest transition-all border-2 ${mapActiveDayIndex === -1 ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg scale-105' : 'bg-stone-50 dark:bg-stone-800 border-stone-100 dark:border-stone-700 text-stone-400 hover:border-stone-200 hover:text-stone-700 dark:hover:text-stone-200'}`}
                    >
                      🌍 All Stops
                    </button>
@@ -251,7 +252,7 @@ export const ItineraryDisplay: React.FC<ItineraryDisplayProps> = ({
                      <button 
                         key={idx}
                         onClick={() => setMapActiveDayIndex(idx)}
-                        className={`px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${mapActiveDayIndex === idx ? 'bg-stone-900 dark:bg-stone-100 border-stone-900 dark:border-stone-100 text-white dark:text-stone-900 shadow-lg scale-105' : 'bg-stone-50 dark:bg-stone-800 border-stone-100 dark:border-stone-700 text-stone-400 hover:border-stone-200 hover:text-stone-700 dark:hover:text-stone-200'}`}
+                        className={`px-5 py-2.5 rounded-xl text-[10px] font-normal uppercase tracking-widest transition-all border-2 ${mapActiveDayIndex === idx ? 'bg-stone-900 dark:bg-stone-100 border-stone-900 dark:border-stone-100 text-white dark:text-stone-900 shadow-lg scale-105' : 'bg-stone-50 dark:bg-stone-800 border-stone-100 dark:border-stone-700 text-stone-400 hover:border-stone-200 hover:text-stone-700 dark:hover:text-stone-200'}`}
                      >
                         Day {day.dayNumber}
                      </button>
@@ -267,8 +268,8 @@ export const ItineraryDisplay: React.FC<ItineraryDisplayProps> = ({
                       {mapActiveDayIndex === -1 ? '🌍' : '📍'}
                     </div>
                     <div>
-                       <p className="text-[9px] font-black text-stone-500 uppercase tracking-[0.2em]">Map Focus</p>
-                       <p className="text-xs font-black text-stone-900 dark:text-white">
+                       <p className="text-[9px] font-normal text-stone-500 uppercase tracking-[0.2em]">Map Focus</p>
+                       <p className="text-xs font-normal text-stone-900 dark:text-white">
                          {mapActiveDayIndex === -1 ? 'Full Journey Overview' : `Day ${plan.days[mapActiveDayIndex].dayNumber}: ${plan.days[mapActiveDayIndex].theme}`}
                        </p>
                     </div>
@@ -283,7 +284,7 @@ export const ItineraryDisplay: React.FC<ItineraryDisplayProps> = ({
           {activeTab === 'transport' && (
             <div className="bg-white dark:bg-stone-900 rounded-[2.5rem] p-10 shadow-xl animate-fadeIn min-h-[500px] border dark:border-stone-800">
                <div className="text-center mb-12">
-                  <h3 className="text-3xl font-black text-stone-900 dark:text-stone-100 mb-2">Local Transit Directory 🚕</h3>
+                  <h3 className="text-3xl font-bold text-stone-900 dark:text-stone-100 mb-2">Local Transit Directory 🚕</h3>
                   <p className="text-stone-500 max-w-lg mx-auto">Verified local transport services for {plan.destinationSummary.split(',')[0]}.</p>
                </div>
                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -292,14 +293,14 @@ export const ItineraryDisplay: React.FC<ItineraryDisplayProps> = ({
                     return (
                       <div key={i} className="p-10 bg-stone-50 dark:bg-stone-800/50 rounded-[2.5rem] border border-stone-100 dark:border-stone-800 flex flex-col group hover:border-indigo-200 transition-all shadow-sm">
                          <div className="flex justify-between items-start mb-6">
-                            <span className="text-2xl font-black text-stone-900 dark:text-stone-100">{res.name}</span>
+                            <span className="text-2xl font-bold text-stone-900 dark:text-stone-100">{res.name}</span>
                             <span className="bg-white dark:bg-stone-800 p-4 rounded-2xl shadow-sm text-3xl">🚕</span>
                          </div>
-                         <p className="text-sm text-stone-500 font-medium italic mb-10 flex-1 leading-relaxed">{res.notes}</p>
+                         <p className="text-sm text-stone-500 font-normal italic mb-10 flex-1 leading-relaxed">{res.notes}</p>
                          {isUrl ? (
-                           <a href={res.contact.startsWith('http') ? res.contact : `https://${res.contact}`} target="_blank" rel="noreferrer" className="w-full bg-stone-900 dark:bg-stone-100 dark:text-stone-900 text-white py-5 rounded-2xl text-center font-black text-[10px] uppercase tracking-widest hover:bg-black dark:hover:bg-white transition shadow-xl">Explore Official Service ↗</a>
+                           <a href={res.contact.startsWith('http') ? res.contact : `https://${res.contact}`} target="_blank" rel="noreferrer" className="w-full bg-stone-900 dark:bg-stone-100 dark:text-stone-900 text-white py-5 rounded-2xl text-center font-normal text-[10px] uppercase tracking-widest hover:bg-black dark:hover:bg-white transition shadow-xl">Explore Official Service ↗</a>
                          ) : (
-                           <a href={`tel:${res.contact}`} className="w-full bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-900 dark:text-stone-100 py-5 rounded-2xl text-center font-black text-[10px] uppercase tracking-widest hover:bg-stone-50 dark:hover:bg-stone-700 transition shadow-md">Call: {res.contact} 📞</a>
+                           <a href={`tel:${res.contact}`} className="w-full bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-900 dark:text-stone-100 py-5 rounded-2xl text-center font-normal text-[10px] uppercase tracking-widest hover:bg-stone-50 dark:hover:bg-stone-700 transition shadow-md">Call: {res.contact} 📞</a>
                          )}
                       </div>
                     );
@@ -318,7 +319,7 @@ export const ItineraryDisplay: React.FC<ItineraryDisplayProps> = ({
         </div>
       )}
       
-      <div className="mt-12 text-center"><button onClick={onReset} className="bg-stone-900 dark:bg-stone-100 dark:text-stone-900 text-white px-10 py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl hover:bg-black dark:hover:bg-white transition">Design New Trip 🚀</button></div>
+      <div className="mt-12 text-center"><button onClick={onReset} className="bg-stone-900 dark:bg-stone-100 dark:text-stone-900 text-white px-10 py-4 rounded-2xl font-normal text-sm uppercase tracking-widest shadow-2xl hover:bg-black dark:hover:bg-white transition">Design New Trip 🚀</button></div>
     </div>
   );
 };

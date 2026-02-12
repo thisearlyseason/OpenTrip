@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { TripPlan, Receipt, DayActivity } from '../types';
+import { TripPlan, Receipt, DayActivity, FlightLeg, AccommodationDetails } from '../types';
 
 interface BudgetDashboardProps {
   plan: TripPlan;
@@ -27,15 +27,31 @@ export const BudgetDashboard: React.FC<BudgetDashboardProps> = ({ plan, onUpdate
   const getCategoryStats = (types: string[]) => {
     let items = allActivities.filter(a => types.includes(a.type));
     
-    // Special handling for hotels to show only unique entries (simplified view)
-    if (types.some(t => t.startsWith('hotel-'))) {
-      const seen = new Set();
-      items = items.filter(a => {
-        const hotelKey = a.title?.replace('Check-in: ', '').replace('Hotel Checkout: ', '');
-        if (seen.has(hotelKey)) return false;
-        seen.add(hotelKey);
-        return true;
-      });
+    // For hotels, flights, and specific transit, we might want to prioritize metadata if available
+    if (types.includes('hotel-checkin')) {
+      const hotelItems = plan.metadata.accommodations.map(acc => ({
+        id: acc.id,
+        title: acc.hotelName || 'Unnamed Hotel',
+        cost: acc.cost || 0,
+        actualSpent: acc.actualSpent || 0,
+        type: 'hotel-checkin',
+        dayNumber: 0,
+        time: ''
+      }));
+      if (hotelItems.length > 0) items = hotelItems as any;
+    }
+
+    if (types.includes('flight')) {
+      const flightItems = plan.metadata.flights.legs.map(leg => ({
+        id: leg.id,
+        title: `${leg.airline || 'Flight'} ${leg.flightNumber}: ${leg.departureAirport} → ${leg.arrivalAirport}`,
+        cost: leg.cost || 0,
+        actualSpent: leg.actualSpent || 0,
+        type: 'flight',
+        dayNumber: 0,
+        time: leg.departureTime
+      }));
+      if (flightItems.length > 0) items = flightItems as any;
     }
 
     const budgeted = items.reduce((acc, a) => acc + (a.cost || 0), 0);
@@ -52,11 +68,20 @@ export const BudgetDashboard: React.FC<BudgetDashboardProps> = ({ plan, onUpdate
   const totalBud = activityStats.budgeted + diningStats.budgeted + flightStats.budgeted + hotelStats.budgeted;
 
   const handleUpdateItem = (id: string, field: 'cost' | 'actualSpent', value: number) => {
-    const newDays = plan.days.map(d => ({
-        ...d,
-        activities: d.activities.map(a => a.id === id ? { ...a, [field]: value } : a)
-    }));
-    onUpdatePlan({ ...plan, days: newDays });
+    // Determine which pool to update
+    if (drillDownCategory === 'hotels') {
+      const newAcc = plan.metadata.accommodations.map(a => a.id === id ? { ...a, [field]: value } : a);
+      onUpdatePlan({ ...plan, metadata: { ...plan.metadata, accommodations: newAcc } });
+    } else if (drillDownCategory === 'flights') {
+      const newFlights = plan.metadata.flights.legs.map(l => l.id === id ? { ...l, [field]: value } : l);
+      onUpdatePlan({ ...plan, metadata: { ...plan.metadata, flights: { ...plan.metadata.flights, legs: newFlights } } });
+    } else {
+      const newDays = plan.days.map(d => ({
+          ...d,
+          activities: d.activities.map(a => a.id === id ? { ...a, [field]: value } : a)
+      }));
+      onUpdatePlan({ ...plan, days: newDays });
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -94,14 +119,14 @@ export const BudgetDashboard: React.FC<BudgetDashboardProps> = ({ plan, onUpdate
         className={`bg-white dark:bg-stone-900 rounded-[2.5rem] border border-stone-100 dark:border-stone-800 p-10 shadow-sm cursor-pointer hover:shadow-xl transition-all group ${drillDownCategory === id ? 'ring-2 ring-indigo-500 scale-[1.02]' : ''}`}
     >
       <div className="flex justify-between items-center mb-8">
-        <h4 className="text-[10px] font-normal uppercase text-stone-400 tracking-[0.3em]">{title}</h4>
+        <h4 className="text-[10px] font-bold uppercase text-stone-400 tracking-[0.3em]">{title}</h4>
         <span className={`w-10 h-10 rounded-2xl flex items-center justify-center text-2xl shadow-sm ${color}`}>
             {id === 'dining' ? '🥘' : id === 'flights' ? '✈️' : id === 'hotels' ? '🏨' : '🗺️'}
         </span>
       </div>
-      <div className="flex items-end gap-3 mb-4">
-        <span className="text-3xl font-normal text-stone-900 dark:text-white">{curSym}{stats.actual.toLocaleString()}</span>
-        <span className="text-stone-300 dark:text-stone-600 text-sm font-normal mb-2">/ {curSym}{stats.budgeted.toLocaleString()}</span>
+      <div className="flex items-end gap-3 mb-4 font-normal">
+        <span className="text-3xl text-stone-900 dark:text-white">{curSym}{stats.actual.toLocaleString()}</span>
+        <span className="text-stone-300 dark:text-stone-600 text-sm mb-2">/ {curSym}{stats.budgeted.toLocaleString()}</span>
       </div>
       <div className="w-full bg-stone-100 dark:bg-stone-800 h-2 rounded-full overflow-hidden">
         <div className={`h-full transition-all duration-1000 ${stats.actual > stats.budgeted ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.4)]' : 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]'}`} style={{ width: `${Math.min(100, (stats.actual / (stats.budgeted || 1)) * 100)}%` }}></div>
@@ -111,7 +136,7 @@ export const BudgetDashboard: React.FC<BudgetDashboardProps> = ({ plan, onUpdate
   );
 
   return (
-    <div className="max-w-4xl mx-auto p-4 space-y-10 animate-fadeIn">
+    <div className="max-w-4xl mx-auto p-4 space-y-10 animate-fadeIn font-normal">
       <div className="flex justify-center gap-2 bg-stone-100 dark:bg-stone-800 p-1.5 rounded-2xl w-fit mx-auto shadow-inner border border-stone-200 dark:border-stone-700">
           <button onClick={() => {setActiveSubTab('overview'); setDrillDownCategory(null);}} className={`px-10 py-3 rounded-xl text-xs font-normal uppercase tracking-widest transition-all ${activeSubTab === 'overview' ? 'bg-white dark:bg-stone-900 shadow-md text-stone-900 dark:text-white' : 'text-stone-400 hover:text-stone-600 dark:hover:text-stone-200'}`}>Overview</button>
           <button onClick={() => {setActiveSubTab('receipts'); setDrillDownCategory(null);}} className={`px-10 py-3 rounded-xl text-xs font-normal uppercase tracking-widest transition-all ${activeSubTab === 'receipts' ? 'bg-white dark:bg-stone-900 shadow-md text-stone-900 dark:text-white' : 'text-stone-400 hover:text-stone-600 dark:hover:text-stone-200'}`}>Receipts ({plan.receipts?.length || 0})</button>
@@ -145,24 +170,24 @@ export const BudgetDashboard: React.FC<BudgetDashboardProps> = ({ plan, onUpdate
           {drillDownCategory && (
             <div className="bg-white dark:bg-stone-900 rounded-[3.5rem] border border-stone-200 dark:border-stone-800 p-12 shadow-[0_35px_60px_-15px_rgba(0,0,0,0.3)] animate-slideUp">
                <div className="flex justify-between items-center mb-12">
-                  <h4 className="text-3xl font-normal text-stone-900 dark:text-white">Manage {drillDownCategory.charAt(0).toUpperCase() + drillDownCategory.slice(1)} Items</h4>
+                  <h4 className="text-3xl font-bold text-stone-900 dark:text-white">Manage {drillDownCategory.charAt(0).toUpperCase() + drillDownCategory.slice(1)} Items</h4>
                   <button onClick={() => setDrillDownCategory(null)} className="text-stone-300 dark:text-stone-700 hover:text-stone-900 dark:hover:text-stone-100 font-normal transition-colors">✕ Close Manager</button>
                </div>
-               <div className="space-y-6 max-h-[550px] overflow-y-auto pr-6 custom-scrollbar">
+               <div className="space-y-6 max-h-[550px] overflow-y-auto pr-6 custom-scrollbar font-normal">
                   {(drillDownCategory === 'activities' ? activityStats : drillDownCategory === 'dining' ? diningStats : drillDownCategory === 'flights' ? flightStats : hotelStats).items.map(item => (
                     <div key={item.id} className="bg-stone-50 dark:bg-stone-800/50 p-8 rounded-3xl border border-stone-100 dark:border-stone-700 flex flex-col md:flex-row md:items-center justify-between gap-8 group">
                        <div className="flex-1">
-                          {drillDownCategory !== 'hotels' && (
+                          {item.dayNumber > 0 && (
                              <div className="flex items-center gap-3 mb-2">
                                 <span className="bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-lg text-[9px] font-normal uppercase tracking-widest">Day {item.dayNumber}</span>
                                 <p className="text-[10px] font-normal text-stone-400 uppercase tracking-widest">{item.time}</p>
                              </div>
                           )}
                           <p className="text-lg font-normal text-stone-900 dark:text-white group-hover:text-indigo-600 transition-colors">
-                            {drillDownCategory === 'hotels' ? item.title?.replace('Check-in: ', '').replace('Hotel Checkout: ', '') : item.title}
+                            {item.title}
                           </p>
                        </div>
-                       <div className="flex items-center gap-8">
+                       <div className="flex items-center gap-8 font-normal">
                           <div className="text-right">
                              <label className="text-[10px] font-normal text-stone-400 uppercase block mb-2 tracking-widest">Planned Budget</label>
                              <div className="flex items-center gap-2 bg-white dark:bg-stone-900 px-4 py-2.5 rounded-2xl border dark:border-stone-700 shadow-inner">
@@ -187,7 +212,7 @@ export const BudgetDashboard: React.FC<BudgetDashboardProps> = ({ plan, onUpdate
       ) : (
         <div className="space-y-12 animate-slideUp">
            <div className="flex flex-col md:flex-row justify-between items-center gap-8 px-6">
-              <h4 className="text-4xl font-normal text-stone-900 dark:text-white">Receipt Vault 📑</h4>
+              <h4 className="text-4xl font-bold text-stone-900 dark:text-white">Receipt Vault 📑</h4>
               <div className="flex gap-4">
                 <button onClick={() => fileInputRef.current?.click()} className="bg-indigo-600 text-white px-10 py-5 rounded-2xl text-xs font-normal uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition active:scale-95">Upload New Receipt</button>
                 {plan.receipts && plan.receipts.length > 0 && (
@@ -197,7 +222,7 @@ export const BudgetDashboard: React.FC<BudgetDashboardProps> = ({ plan, onUpdate
               <input type="file" hide="true" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
            </div>
 
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 px-2">
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 px-2 font-normal">
               {plan.receipts?.length === 0 ? (
                 <div className="col-span-full py-32 bg-stone-50 dark:bg-stone-900/50 border-4 border-dashed border-stone-100 dark:border-stone-800 rounded-[4rem] text-center flex flex-col items-center justify-center">
                    <span className="text-7xl mb-6 opacity-20">📑</span>
@@ -207,7 +232,7 @@ export const BudgetDashboard: React.FC<BudgetDashboardProps> = ({ plan, onUpdate
               ) : (
                 plan.receipts?.map(r => (
                   <div key={r.id} className="bg-white dark:bg-stone-900 border dark:border-stone-800 p-10 rounded-[3rem] shadow-sm flex flex-col justify-between group hover:shadow-2xl hover:scale-[1.03] transition-all">
-                     <div className="mb-8">
+                     <div className="mb-8 font-normal">
                        <div className="w-14 h-14 bg-stone-50 dark:bg-stone-800 rounded-2xl flex items-center justify-center text-3xl mb-6 group-hover:rotate-12 group-hover:scale-110 transition-transform shadow-sm">📄</div>
                        <p className="text-xl font-normal text-stone-900 dark:text-white line-clamp-1">{r.title}</p>
                        <p className="text-[10px] text-stone-400 dark:text-stone-600 font-normal uppercase tracking-[0.2em] mt-2">{r.date} • {r.vendor}</p>

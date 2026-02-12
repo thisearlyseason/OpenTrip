@@ -47,28 +47,28 @@ export const AssistantChat: React.FC<{ plan: TripPlan; isPro: boolean; onUpgrade
         {isOpen ? (
           <div className="w-80 h-[450px] bg-white rounded-3xl shadow-2xl border border-stone-100 flex flex-col overflow-hidden animate-slideUp">
             <div className="bg-stone-900 p-4 text-white flex justify-between items-center">
-              <span className="font-bold text-sm">OpenTrip AI 🤖</span>
+              <span className="font-normal text-sm">OpenTrip AI 🤖</span>
               <button onClick={() => setIsOpen(false)} className="hover:text-stone-400">✕</button>
             </div>
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 bg-stone-50">
               {messages.map((m, i) => (
                 <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[80%] p-3 rounded-2xl text-xs leading-relaxed ${m.role === 'user' ? 'bg-sky-500 text-white' : 'bg-white text-stone-700 shadow-sm border border-stone-100'}`}>
+                  <div className={`max-w-[80%] p-3 rounded-2xl text-xs leading-relaxed font-normal ${m.role === 'user' ? 'bg-sky-500 text-white' : 'bg-white text-stone-700 shadow-sm border border-stone-100'}`}>
                     {m.text}
                   </div>
                 </div>
               ))}
-              {loading && <div className="text-[10px] text-stone-400 italic">OpenTrip is thinking...</div>}
+              {loading && <div className="text-[10px] text-stone-400 italic font-normal">OpenTrip is thinking...</div>}
             </div>
             <div className="p-3 border-t flex gap-2 bg-white">
               <input 
-                className="flex-1 p-2 bg-stone-100 rounded-xl text-xs focus:outline-none" 
+                className="flex-1 p-2 bg-stone-100 rounded-xl text-xs focus:outline-none font-normal" 
                 placeholder="Ask a question..."
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSend()}
               />
-              <button onClick={handleSend} className="bg-stone-900 text-white w-8 h-8 rounded-xl flex items-center justify-center">➔</button>
+              <button onClick={handleSend} className="bg-stone-900 text-white w-8 h-8 rounded-xl flex items-center justify-center font-normal">➔</button>
             </div>
           </div>
         ) : (
@@ -94,13 +94,13 @@ export const AssistantChat: React.FC<{ plan: TripPlan; isPro: boolean; onUpgrade
              <div className="w-20 h-20 bg-indigo-100 rounded-[2rem] flex items-center justify-center text-4xl mx-auto mb-6">
                 🤖
              </div>
-             <h4 className="text-2xl font-black text-stone-900 mb-3 tracking-tight">AI Concierge Locked</h4>
-             <p className="text-stone-500 font-medium mb-8 text-sm leading-relaxed">
+             <h4 className="text-2xl font-bold text-stone-900 mb-3 tracking-tight">AI Concierge Locked</h4>
+             <p className="text-stone-500 font-normal mb-8 text-sm leading-relaxed">
                Chat with your personal travel assistant, get real-time advice, and modify your trip on the fly with OpenTrip Pro.
              </p>
              <button 
                onClick={() => { setShowUpgradeModal(false); onUpgrade(); }}
-               className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition"
+               className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-normal text-sm uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition"
              >
                Unlock AI Assistant
              </button>
