@@ -1,4 +1,3 @@
-
 export type ActivityType = 'sightseeing' | 'food' | 'nature' | 'relax' | 'culture' | 'shopping' | 'transport' | 'other' | 'arrival' | 'departure' | 'flight' | 'hotel-checkin' | 'hotel-checkout' | 'meal';
 
 export interface Traveler {
@@ -55,14 +54,15 @@ export interface AccommodationDetails {
 
 export interface Receipt {
   id: string;
-  category: 'flight' | 'hotel' | 'food' | 'activity' | 'other';
+  category: 'flight' | 'hotel' | 'food' | 'activity' | 'other' | 'transport';
   title: string;
   vendor: string;
   date: string;
-  amount?: number;
+  amount: number;
   fileData: string; // base64 string
   fileName: string;
   fileType: string;
+  activityId?: string; // Linked activity
 }
 
 export interface TripRequest {
@@ -75,8 +75,8 @@ export interface TripRequest {
   includeFlightBudget: boolean;
   hotelBudget?: number;
   includeHotelBudget: boolean;
-  transportBudget?: number; // Added
-  includeTransportBudget: boolean; // Added
+  transportBudget?: number;
+  includeTransportBudget: boolean;
   dates: {
     start: string;
     end: string;
@@ -86,7 +86,7 @@ export interface TripRequest {
     start: string;
     end: string;
   };
-  activityPreference?: string; // Added
+  activityPreference?: string;
   flight: FlightDetails;
   travelers: TravelerInfo;
   transport: string[];
@@ -116,7 +116,7 @@ export interface DayActivity {
   actualSpent?: number;
   rating?: number;
   reviewCount?: string;
-  dayNumber?: number; // Added for budget context
+  dayNumber?: number;
   meta?: {
     flightNumber?: string;
     airline?: string;

@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { TripPlan } from '../types';
 
@@ -10,166 +9,60 @@ interface ToolProps {
   onShare: () => void;
 }
 
-const QUICK_EMOJIS = ['✈️', '🏨', '🗺️', '🥘', '📸', '🌟', '🥂', '🗽', '🏔️', '🏖️'];
+const QUICK_EMOJIS = ['✈️', '🏨', '🥘', '📸', '🌟', '🥂'];
 
 export const CollaborativeLayer: React.FC<ToolProps> = ({ plan, isPro, onGatedActionTrigger, onUpgrade, onShare }) => {
   const [comments, setComments] = useState(plan.collaboration?.comments || [
-    { id: '1', author: 'Alex', text: 'Alex updated the plan', timestamp: Date.now() },
-    { id: '2', author: 'TravelAI', text: 'I love this itinerary! Let me know if you want more hidden gems.', timestamp: Date.now() - 100000 }
+    { id: '1', author: 'Alex', text: 'Should we add more nature activities?', timestamp: Date.now() - 100000 },
+    { id: '2', author: 'TravelAI', text: 'I recommend the local park for Day 2!', timestamp: Date.now() - 50000 }
   ]);
   const [input, setInput] = useState('');
-  const [showFunCTA, setShowFunCTA] = useState(false);
-
-  const handleInteractionAttempt = () => {
-    if (!isPro) {
-      setShowFunCTA(true);
-      onGatedActionTrigger('tool-collab');
-      return false;
-    }
-    return true;
-  };
 
   const addComment = () => {
-    if (!handleInteractionAttempt()) return;
+    if (!isPro) { onGatedActionTrigger('collab'); return; }
     if (!input.trim()) return;
     setComments(prev => [...prev, { id: Date.now().toString(), author: 'You', text: input, timestamp: Date.now() }]);
     setInput('');
   };
 
-  const handleDownload = () => {
-    if (!handleInteractionAttempt()) return;
-    window.print();
-  };
-
-  const appendEmoji = (emoji: string) => {
-    if (!handleInteractionAttempt()) return;
-    setInput(prev => prev + emoji);
-  };
-
   return (
-    <div className="relative">
-      <div className={`bg-white p-8 rounded-[2.5rem] border border-stone-200 shadow-xl transition-all ${!isPro ? 'opacity-90 grayscale-[0.2]' : ''}`}>
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="font-bold text-xl text-stone-900 tracking-tight">Collaboration Hub 👯‍♀️</h3>
-          {!isPro && <span className="text-[10px] font-normal bg-indigo-100 text-indigo-600 px-3 py-1 rounded-full uppercase tracking-widest animate-pulse shadow-sm">Pro Feature</span>}
-        </div>
-        
-        <div className="flex flex-col gap-3 mb-8">
-           <button 
-             onClick={onShare}
-             className="w-full py-4 rounded-2xl bg-sky-50 text-sky-600 font-normal text-xs uppercase tracking-widest border border-sky-100 hover:bg-sky-100 transition shadow-sm flex items-center justify-center gap-2"
-           >
-             Share Itinerary (Link) {isPro ? '🔗' : '🔒'}
-           </button>
-           <button 
-             onClick={handleDownload}
-             className="w-full py-4 rounded-2xl bg-stone-50 text-stone-600 font-normal text-xs uppercase tracking-widest border border-stone-100 hover:bg-stone-100 transition shadow-sm flex items-center justify-center gap-2"
-           >
-             Download PDF {isPro ? '📄' : '🔒'}
-           </button>
-        </div>
-
-        <div className="space-y-4 mb-8 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar border-t pt-6">
-          <p className="text-[10px] font-normal text-stone-400 uppercase tracking-widest mb-2">Live Discussions</p>
-          {comments.map(c => (
-            <div key={c.id} className="group">
-              <div className={`p-4 rounded-[1.5rem] border ${c.author === 'You' ? 'bg-indigo-50 border-indigo-100 ml-4' : 'bg-stone-50 border-stone-100 mr-4'}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className={`text-[10px] font-normal uppercase tracking-widest ${c.author === 'You' ? 'text-indigo-600' : 'text-stone-400'}`}>{c.author}</span>
-                  <span className="text-[8px] font-normal text-stone-300">Recently</span>
-                </div>
-                <p className="text-xs text-stone-700 leading-relaxed font-normal">{c.text}</p>
-              </div>
+    <div className="flex flex-col h-full">
+      <div className="mb-8">
+        <h3 className="font-bold text-2xl sm:text-3xl tracking-tight mb-2">Collaboration Hub 👯‍♀️</h3>
+        <p className="text-stone-500 text-sm">Real-time workspace for your group trip planning.</p>
+      </div>
+      
+      <div className="flex-1 space-y-4 mb-8 overflow-y-auto custom-scrollbar pr-4">
+        {comments.map(c => (
+          <div key={c.id} className={`flex ${c.author === 'You' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[85%] p-4 rounded-3xl border shadow-sm ${c.author === 'You' ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-stone-50 dark:bg-stone-800 border-stone-100 dark:border-stone-700 text-stone-800 dark:text-stone-100'}`}>
+              <p className={`text-[8px] font-bold uppercase mb-1 ${c.author === 'You' ? 'text-indigo-200' : 'text-stone-400'}`}>{c.author}</p>
+              <p className="text-sm font-normal leading-relaxed">{c.text}</p>
             </div>
-          ))}
-        </div>
-
-        <div className="space-y-4">
-          <div className="relative overflow-hidden rounded-[1.5rem] border border-stone-100 shadow-inner bg-stone-50">
-            {!isPro && (
-              <div className="absolute inset-0 z-10 cursor-pointer bg-transparent" onClick={handleInteractionAttempt}></div>
-            )}
-            <textarea 
-              className="w-full p-5 bg-transparent rounded-[1.5rem] text-xs font-normal focus:bg-white focus:outline-none outline-none transition-all resize-none min-h-[120px]" 
-              placeholder={isPro ? "Suggest a change or post a thought..." : "Upgrade to start collaborating..."}
-              value={input}
-              readOnly={!isPro}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), addComment())}
-            />
           </div>
-          
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap gap-2 px-1">
-              {QUICK_EMOJIS.map(emoji => (
-                <button 
-                  key={emoji}
-                  onClick={() => appendEmoji(emoji)}
-                  className="w-8 h-8 flex items-center justify-center bg-stone-50 border border-stone-100 rounded-lg text-sm hover:bg-white hover:border-stone-300 transition-all shadow-sm active:scale-90 font-normal"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-            
-            <button 
-              onClick={addComment} 
-              disabled={!input.trim()}
-              className="w-full py-5 bg-stone-900 text-white rounded-[1.5rem] text-xs font-normal uppercase tracking-widest hover:bg-black transition-all active:scale-[0.98] shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Post Message
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-8 pt-8 border-t border-stone-100">
-           <p className="text-[10px] font-normal text-stone-400 uppercase tracking-widest mb-4">Invite Your Squad</p>
-           <div className="flex items-center justify-between">
-             <div className="flex -space-x-3">
-                {[1,2,3,4].map(i => (
-                  <div key={i} className="w-10 h-10 rounded-full border-2 border-white bg-stone-200 flex items-center justify-center text-xs font-normal text-stone-500 shadow-sm overflow-hidden">
-                     <img src={`https://i.pravatar.cc/100?img=${i+14}`} alt="avatar" />
-                  </div>
-                ))}
-                <button 
-                  onClick={handleInteractionAttempt}
-                  className="w-10 h-10 rounded-full border-2 border-white bg-indigo-50 text-indigo-600 flex items-center justify-center text-lg font-normal shadow-sm hover:scale-110 transition-transform"
-                >
-                  +
-                </button>
-             </div>
-             <p className="text-[10px] font-normal text-stone-400 italic">"Trip planning is a team sport!"</p>
-           </div>
-        </div>
+        ))}
       </div>
 
-      {showFunCTA && !isPro && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-stone-900/60 backdrop-blur-md p-6 animate-fadeIn">
-          <div className="bg-white p-10 rounded-[3rem] shadow-2xl border border-stone-100 max-w-sm text-center transform scale-100 transition-transform hover:scale-105">
-             <div className="w-24 h-24 bg-indigo-100 rounded-[2.5rem] flex items-center justify-center text-5xl mx-auto mb-8 animate-bounce">
-                🎉
-             </div>
-             <h4 className="text-3xl font-bold text-stone-900 mb-4 tracking-tight">Better with Friends!</h4>
-             <p className="text-stone-500 font-normal mb-8 leading-relaxed">
-               Ready to coordinate with your squad? Upgrade to OpenTrip Pro to invite your crew, post live comments, and suggest itinerary changes together. 🚀
-             </p>
-             <div className="space-y-3">
-               <button 
-                 onClick={onUpgrade}
-                 className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-normal text-sm uppercase tracking-widest shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition"
-               >
-                 Go Pro Today
-               </button>
-               <button 
-                 onClick={() => setShowFunCTA(false)}
-                 className="w-full py-4 text-stone-400 font-normal text-xs uppercase tracking-widest hover:text-stone-900 transition"
-               >
-                 Maybe Later
-               </button>
-             </div>
+      <div className="space-y-6 pt-6 border-t dark:border-stone-800">
+        <div className="relative">
+          <textarea 
+            className="w-full p-5 bg-stone-50 dark:bg-stone-800 rounded-3xl text-sm outline-none focus:ring-4 ring-indigo-500/10 transition-all resize-none border dark:border-stone-700 min-h-[100px]" 
+            placeholder="Share an idea, a message, or an image link..."
+            value={input}
+            onChange={e => setInput(e.target.value)}
+          />
+          <div className="absolute right-4 bottom-4 flex gap-2">
+             {QUICK_EMOJIS.slice(0, 3).map(e => (
+               <button key={e} onClick={() => setInput(prev => prev + e)} className="p-2 hover:scale-125 transition-transform text-lg">{e}</button>
+             ))}
           </div>
         </div>
-      )}
+        
+        <div className="grid grid-cols-2 gap-4">
+          <button onClick={addComment} className="bg-stone-900 dark:bg-stone-100 dark:text-stone-900 text-white py-4 rounded-2xl font-bold uppercase text-xs tracking-widest shadow-xl transition-all active:scale-95">Send Message</button>
+          <button onClick={onShare} className="bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 py-4 rounded-2xl font-bold uppercase text-xs tracking-widest transition-colors hover:bg-indigo-100">Invite Group 🔗</button>
+        </div>
+      </div>
     </div>
   );
 };

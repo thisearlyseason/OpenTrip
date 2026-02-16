@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { TripRequest, TripPlan, DayActivity, LiveContext, TripDay } from "../types";
 
@@ -79,7 +78,7 @@ const parseJsonFromText = (text: string) => {
     if (firstBrace !== -1 && lastBrace !== -1) {
       return JSON.parse(cleanedText.substring(firstBrace, lastBrace + 1));
     }
-    throw new Error("No JSON found");
+    return JSON.parse(cleanedText);
   } catch (e) {
     console.error("JSON Parsing Error:", text);
     throw new Error("AI returned unreadable data. Please try again.");
@@ -91,11 +90,15 @@ export const generateImage = async (prompt: string, aspectRatio: '1:1' | '3:4' |
     const ai = getAi();
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
-      contents: { parts: [{ text: `${prompt}. Breathtaking professional travel photography, highly detailed, cinematic lighting.` }] },
+      contents: { parts: [{ text: `${prompt}. Breathtaking professional travel photography, highly detailed, cinematic lighting. ABSOLUTELY NO watermarks, NO text, NO overlays, NO logos, NO signatures, NO brand names. Clear, clean image.` }] },
       config: { imageConfig: { aspectRatio } },
     });
-    const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
-    return part?.inlineData ? `data:image/png;base64,${part.inlineData.data}` : 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1200&q=80';
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
+      }
+    }
+    return 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1200&q=80';
   } catch {
     return 'https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1200&q=80';
   }
@@ -103,6 +106,15 @@ export const generateImage = async (prompt: string, aspectRatio: '1:1' | '3:4' |
 
 export const generateTripPlan = async (request: TripRequest): Promise<{ plan: TripPlan, groundingUrls: any[] }> => {
   const ai = getAi();
+  
+  const accommodationsText = request.accommodations.length > 0 
+    ? request.accommodations.map(a => `${a.hotelName} (Address: ${a.address || 'Unknown'}, In: ${a.checkInDate} @ ${a.checkInTime}, Out: ${a.checkOutDate} @ ${a.checkOutTime})`).join('; ')
+    : "No hotels provided by user.";
+
+  const flightText = request.flight.legs.length > 0
+    ? request.flight.legs.map(l => `Flight ${l.airline} ${l.flightNumber} from ${l.departureAirport} to ${l.arrivalAirport} at ${l.departureTime} on ${l.departureDate}`).join('; ')
+    : "No flights provided.";
+
   const prompt = `Act as an Expert Travel Planner.
   Dates: ${request.dates.start} to ${request.dates.end}.
   Location: ${request.destination}.
@@ -112,14 +124,19 @@ export const generateTripPlan = async (request: TripRequest): Promise<{ plan: Tr
   Vibe: ${request.vibe.join(', ')}.
   Must Includes: ${request.mustIncludes.join(', ')}.
   Transit Preference: ${request.transport.join(', ')}.
+  User-Provided Accommodations: ${accommodationsText}
+  User-Provided Flights: ${flightText}
 
-  INSTRUCTIONS:
-  1. CHRONOLOGICAL INTERLEAVING: Interleave Flights, Hotel checks, Meals, and Activities.
-  2. TRANSIT: suggest optimal mode (e.g. Subway, Walking) between EVERY activity in "transportToNext".
-  3. RESOURCES: Provide 10 local transport resources (apps, taxi URLs, transit maps) in "transportResources".
-  4. LIVE DATA: Search for specific events happening during these dates.
-  5. JSON SCHEMA: ${STRICT_JSON_SCHEMA}.
-  6. IMPORTANT: Always set "actualSpent" to 0 for all activities.`;
+  DAILY STRUCTURE INSTRUCTIONS (STRICT):
+  1. DAY ONE START: If a flight departure is provided, it MUST be the very first activity in Day 1.
+  2. LAST DAY END: If a flight return is provided, it MUST be the very last activity on the final day.
+  3. HOTEL SANDWICH: Every day MUST start and end at the hotel (except for initial arrival and final departure flights).
+  4. FLIGHTS ARE ACTIVITIES: You MUST include flight departures and arrivals as actual activity items in the "activities" array for the specific day they occur. Mark them with "type": "flight".
+  5. FILL THE TIMEFRAME: The user wants to be busy from ${request.timePreference.start} to ${request.timePreference.end}.
+  6. TRANSIT: suggest mode between EVERY activity in "transportToNext".
+  7. LOCAL TRANSIT DATA: Provide 10 local transport resources (taxi companies, apps) with names and contact info.
+  8. JSON SCHEMA: ${STRICT_JSON_SCHEMA}.
+  9. IMPORTANT: Set realistic "cost" values for all activities. Set "actualSpent" to 0 for all generated activities.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -157,47 +174,6 @@ export const generateTripPlan = async (request: TripRequest): Promise<{ plan: Tr
   }
 };
 
-export const regenerateDayPlan = async (destination: string, vibe: string, dayNumber: number, currency: string): Promise<TripDay> => {
-  const ai = getAi();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: `Regenerate Day ${dayNumber} for ${destination}. Vibe: ${vibe}. Currency: ${currency}. Return JSON matching TripDay schema. Ensure actualSpent is 0.`,
-    config: { responseMimeType: 'application/json' },
-  });
-  return parseJsonFromText(response.text || '{}') as TripDay;
-};
-
-export const regenerateSingleActivity = async (destination: string, vibe: string, currentActivity: DayActivity, currency: string): Promise<DayActivity> => {
-  const ai = getAi();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: `Find realistic alternative for ${currentActivity.title} in ${destination}. Match DayActivity schema (including lat, lng, and actualSpent: 0). Return JSON.`,
-    config: { responseMimeType: 'application/json' },
-  });
-  return parseJsonFromText(response.text || '{}') as DayActivity;
-};
-
-export const generateActivityFromPrompt = async (destination: string, activityDescription: string, currency: string): Promise<DayActivity> => {
-  const ai = getAi();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: `The user wants to add a stop to their itinerary in ${destination}: "${activityDescription}". 
-    Create a DayActivity object in JSON format with realistic title, description, type, location, website, phone, cost, imagePrompt, and CRITICALLY, valid lat/lng coordinates and actualSpent: 0.`,
-    config: { responseMimeType: 'application/json' },
-  });
-  return parseJsonFromText(response.text || '{}') as DayActivity;
-};
-
-export const fetchLiveContext = async (destination: string): Promise<LiveContext> => {
-  const ai = getAi();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: `Current weather and events in ${destination}. JSON: { weather: { temp, condition, icon }, events: [] }`,
-    config: { responseMimeType: 'application/json', tools: [{ googleSearch: {} }] }
-  });
-  return parseJsonFromText(response.text || '{}');
-};
-
 export const assistantChat = async (message: string, plan: TripPlan): Promise<string> => {
   const ai = getAi();
   const response = await ai.models.generateContent({
@@ -216,4 +192,138 @@ export const getTailoredInterests = async (destination: string): Promise<string[
     });
     return (response.text || "").split(',').map(i => i.trim());
   } catch { return ["Food", "History", "Nature"]; }
+};
+
+export const fetchLiveContext = async (destination: string): Promise<LiveContext> => {
+  const ai = getAi();
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Get current weather and upcoming events for ${destination}. Return JSON.`,
+      config: {
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            weather: {
+              type: Type.OBJECT,
+              properties: {
+                temp: { type: Type.STRING },
+                condition: { type: Type.STRING },
+                icon: { type: Type.STRING }
+              }
+            },
+            events: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  title: { type: Type.STRING },
+                  time: { type: Type.STRING },
+                  location: { type: Type.STRING }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+    return JSON.parse(response.text || '{}');
+  } catch (e) {
+    console.error("fetchLiveContext error:", e);
+    return {};
+  }
+};
+
+export const regenerateDayPlan = async (destination: string, vibe: string, dayNumber: number, currency: string): Promise<TripDay> => {
+  const ai = getAi();
+  const prompt = `Regenerate the itinerary for Day ${dayNumber} of a trip to ${destination} with a ${vibe} vibe. Currency: ${currency}. Return JSON.`;
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            dayNumber: { type: Type.NUMBER },
+            theme: { type: Type.STRING },
+            summary: { type: Type.STRING },
+            activities: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  time: { type: Type.STRING },
+                  durationMinutes: { type: Type.NUMBER },
+                  title: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  type: { type: Type.STRING },
+                  location: { type: Type.STRING },
+                  cost: { type: Type.NUMBER },
+                  imagePrompt: { type: Type.STRING }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+    return JSON.parse(response.text || '{}');
+  } catch (e) {
+    console.error("regenerateDayPlan error:", e);
+    throw new Error("Failed to regenerate day plan.");
+  }
+};
+
+export const regenerateSingleActivity = async (activity: DayActivity, destination: string, vibe: string): Promise<DayActivity> => {
+  const ai = getAi();
+  const prompt = `Provide an alternative travel activity for ${destination} based on this current one: ${activity.title} (${vibe} vibe). Return JSON.`;
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            time: { type: Type.STRING },
+            durationMinutes: { type: Type.NUMBER },
+            title: { type: Type.STRING },
+            description: { type: Type.STRING },
+            type: { type: Type.STRING },
+            location: { type: Type.STRING },
+            cost: { type: Type.NUMBER },
+            imagePrompt: { type: Type.STRING }
+          }
+        }
+      }
+    });
+    return JSON.parse(response.text || '{}');
+  } catch (e) {
+    return activity;
+  }
+};
+
+export const generateActivityFromPrompt = async (userPrompt: string, destination: string, vibe: string, currency: string): Promise<DayActivity[]> => {
+  const ai = getAi();
+  const prompt = `The user wants to add an activity to their trip in ${destination}: "${userPrompt}". Preferred currency: ${currency}. Return an array of DayActivity objects. Include valid lat/lng and realistic cost estimations. Return JSON.`;
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+      }
+    });
+    const result = JSON.parse(response.text || '[]');
+    return Array.isArray(result) ? result : [result];
+  } catch (e) {
+    throw new Error("Failed to generate magic stop.");
+  }
 };

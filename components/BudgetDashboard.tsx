@@ -1,249 +1,325 @@
-
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { TripPlan, Receipt, DayActivity, FlightLeg, AccommodationDetails } from '../types';
 
 interface BudgetDashboardProps {
   plan: TripPlan;
   onUpdatePlan: (newPlan: TripPlan) => void;
   isPro: boolean;
+  onUpgrade?: () => void;
 }
 
 const getCurrencySymbol = (c: string) => (c || "").match(/\((.*?)\)/)?.[1] || (c || "").split(' ')[0] || "$";
 
-export const BudgetDashboard: React.FC<BudgetDashboardProps> = ({ plan, onUpdatePlan, isPro }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'receipts'>('overview');
-  const [drillDownCategory, setDrillDownCategory] = useState<string | null>(null);
+export const BudgetDashboard: React.FC<BudgetDashboardProps> = ({ plan, onUpdatePlan, isPro, onUpgrade }) => {
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'breakdown' | 'receipts'>('overview');
+  const [categoryTab, setCategoryTab] = useState<'flight' | 'hotel' | 'food' | 'activity' | 'transport'>('activity');
+  const [isEditing, setIsEditing] = useState(false);
+  const [localPlan, setLocalPlan] = useState<TripPlan>(plan);
+  
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [viewingReceipt, setViewingReceipt] = useState<Receipt | null>(null);
+  
+  const [uploadForm, setUploadForm] = useState<{
+    id: string;
+    title: string;
+    vendor: string;
+    amount: number;
+    activityId: string;
+    fileData: string;
+    fileName: string;
+    fileType: string;
+    category: Receipt['category'];
+  }>({
+    id: '', title: '', vendor: '', amount: 0, activityId: '', fileData: '', fileName: '', fileType: '', category: 'activity'
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    setLocalPlan(plan);
+  }, [plan]);
+
   const curSym = getCurrencySymbol(plan.currency);
-  const travelers = (plan.metadata.travelers?.adults || 1) + (plan.metadata.travelers?.children || 0);
+  const allActivities = localPlan.days.flatMap(d => d.activities.map(a => ({...a, dayNumber: d.dayNumber})));
 
-  const budgetGoal = plan.metadata.budgetType === 'perPerson' 
-    ? (plan.metadata.budget || 0) * travelers 
-    : (plan.metadata.budget || 0);
+  const categories = [
+    { name: 'Flights', icon: '✈️', key: 'flight' },
+    { name: 'Accommodation', icon: '🏨', key: 'hotel' },
+    { name: 'Dining', icon: '🥘', key: 'food' },
+    { name: 'Activities', icon: '🎡', key: 'activity' },
+    { name: 'Transport', icon: '🚕', key: 'transport' },
+  ];
 
-  const allActivities = plan.days.flatMap(d => d.activities.map(a => ({...a, dayNumber: d.dayNumber})));
-  
-  const getCategoryStats = (types: string[]) => {
-    let items = allActivities.filter(a => types.includes(a.type));
-    
-    // For hotels, flights, and specific transit, we might want to prioritize metadata if available
-    if (types.includes('hotel-checkin')) {
-      const hotelItems = plan.metadata.accommodations.map(acc => ({
-        id: acc.id,
-        title: acc.hotelName || 'Unnamed Hotel',
-        cost: acc.cost || 0,
-        actualSpent: acc.actualSpent || 0,
-        type: 'hotel-checkin',
-        dayNumber: 0,
-        time: ''
-      }));
-      if (hotelItems.length > 0) items = hotelItems as any;
-    }
-
-    if (types.includes('flight')) {
-      const flightItems = plan.metadata.flights.legs.map(leg => ({
-        id: leg.id,
-        title: `${leg.airline || 'Flight'} ${leg.flightNumber}: ${leg.departureAirport} → ${leg.arrivalAirport}`,
-        cost: leg.cost || 0,
-        actualSpent: leg.actualSpent || 0,
-        type: 'flight',
-        dayNumber: 0,
-        time: leg.departureTime
-      }));
-      if (flightItems.length > 0) items = flightItems as any;
-    }
-
-    const budgeted = items.reduce((acc, a) => acc + (a.cost || 0), 0);
-    const actual = items.reduce((acc, a) => acc + (a.actualSpent || 0), 0);
-    return { budgeted, actual, items };
-  };
-
-  const activityStats = getCategoryStats(['sightseeing', 'nature', 'relax', 'culture', 'shopping', 'other', 'arrival', 'departure']);
-  const diningStats = getCategoryStats(['food', 'meal']);
-  const flightStats = getCategoryStats(['flight', 'transport']);
-  const hotelStats = getCategoryStats(['hotel-checkin', 'hotel-checkout']);
-
-  const totalAct = activityStats.actual + diningStats.actual + flightStats.actual + hotelStats.actual;
-  const totalBud = activityStats.budgeted + diningStats.budgeted + flightStats.budgeted + hotelStats.budgeted;
-
-  const handleUpdateItem = (id: string, field: 'cost' | 'actualSpent', value: number) => {
-    // Determine which pool to update
-    if (drillDownCategory === 'hotels') {
-      const newAcc = plan.metadata.accommodations.map(a => a.id === id ? { ...a, [field]: value } : a);
-      onUpdatePlan({ ...plan, metadata: { ...plan.metadata, accommodations: newAcc } });
-    } else if (drillDownCategory === 'flights') {
-      const newFlights = plan.metadata.flights.legs.map(l => l.id === id ? { ...l, [field]: value } : l);
-      onUpdatePlan({ ...plan, metadata: { ...plan.metadata, flights: { ...plan.metadata.flights, legs: newFlights } } });
-    } else {
-      const newDays = plan.days.map(d => ({
-          ...d,
-          activities: d.activities.map(a => a.id === id ? { ...a, [field]: value } : a)
-      }));
-      onUpdatePlan({ ...plan, days: newDays });
-    }
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-        const base64 = ev.target?.result as string;
-        const newReceipt: Receipt = {
-            id: Math.random().toString(),
-            category: 'other',
-            title: file.name,
-            vendor: 'Manual Entry',
-            date: new Date().toLocaleDateString(),
-            amount: 0,
-            fileData: base64,
-            fileName: file.name,
-            fileType: file.type
-        };
-        onUpdatePlan({ ...plan, receipts: [...(plan.receipts || []), newReceipt] });
+  const getStats = () => {
+    let stats = {
+      flight: { budgeted: 0, spent: 0 },
+      hotel: { budgeted: 0, spent: 0 },
+      food: { budgeted: 0, spent: 0 },
+      activity: { budgeted: 0, spent: 0 },
+      transport: { budgeted: 0, spent: 0 },
     };
-    reader.readAsDataURL(file);
+
+    localPlan.metadata.flights.legs.forEach(leg => {
+      stats.flight.budgeted += leg.cost || 0;
+      stats.flight.spent += leg.actualSpent || 0;
+    });
+
+    localPlan.metadata.accommodations.forEach(acc => {
+      stats.hotel.budgeted += acc.cost || 0;
+      stats.hotel.spent += acc.actualSpent || 0;
+    });
+
+    allActivities.forEach(act => {
+      const type = act.type;
+      if (type === 'food' || type === 'meal') {
+        stats.food.budgeted += act.cost || 0;
+        stats.food.spent += act.actualSpent || 0;
+      } else if (type === 'transport') {
+        stats.transport.budgeted += act.cost || 0;
+        stats.transport.spent += act.actualSpent || 0;
+      } else if (type !== 'flight' && type !== 'hotel-checkin' && type !== 'hotel-checkout') {
+        stats.activity.budgeted += act.cost || 0;
+        stats.activity.spent += act.actualSpent || 0;
+      }
+    });
+
+    localPlan.receipts?.forEach(r => {
+        if (!r.activityId && stats[r.category]) {
+            stats[r.category].spent += r.amount;
+        }
+    });
+
+    return stats;
   };
 
-  const downloadReceipt = (r: Receipt) => {
-    const link = document.createElement('a');
-    link.href = r.fileData;
-    link.download = r.fileName;
-    link.click();
+  const stats = getStats();
+  const totalBudgeted = Object.values(stats).reduce((sum, s) => sum + s.budgeted, 0) || localPlan.metadata.budget || 0;
+  const totalSpent = Object.values(stats).reduce((sum, s) => sum + s.spent, 0);
+
+  const handleUpdateActivityValue = (activityId: string, field: 'cost' | 'actualSpent', val: number) => {
+    const updatedDays = localPlan.days.map(d => ({
+        ...d,
+        activities: d.activities.map(a => a.id === activityId ? { ...a, [field]: val } : a)
+    }));
+    setLocalPlan({ ...localPlan, days: updatedDays });
   };
 
-  const CategorySummaryCard = ({ title, stats, id, color }: any) => (
-    <div 
-        onClick={() => setDrillDownCategory(drillDownCategory === id ? null : id)}
-        className={`bg-white dark:bg-stone-900 rounded-[2.5rem] border border-stone-100 dark:border-stone-800 p-10 shadow-sm cursor-pointer hover:shadow-xl transition-all group ${drillDownCategory === id ? 'ring-2 ring-indigo-500 scale-[1.02]' : ''}`}
-    >
-      <div className="flex justify-between items-center mb-8">
-        <h4 className="text-[10px] font-bold uppercase text-stone-400 tracking-[0.3em]">{title}</h4>
-        <span className={`w-10 h-10 rounded-2xl flex items-center justify-center text-2xl shadow-sm ${color}`}>
-            {id === 'dining' ? '🥘' : id === 'flights' ? '✈️' : id === 'hotels' ? '🏨' : '🗺️'}
-        </span>
-      </div>
-      <div className="flex items-end gap-3 mb-4 font-normal">
-        <span className="text-3xl text-stone-900 dark:text-white">{curSym}{stats.actual.toLocaleString()}</span>
-        <span className="text-stone-300 dark:text-stone-600 text-sm mb-2">/ {curSym}{stats.budgeted.toLocaleString()}</span>
-      </div>
-      <div className="w-full bg-stone-100 dark:bg-stone-800 h-2 rounded-full overflow-hidden">
-        <div className={`h-full transition-all duration-1000 ${stats.actual > stats.budgeted ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.4)]' : 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]'}`} style={{ width: `${Math.min(100, (stats.actual / (stats.budgeted || 1)) * 100)}%` }}></div>
-      </div>
-      <p className="mt-6 text-[10px] font-normal text-indigo-500 dark:text-indigo-400 uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">Manage Detailed Items ➔</p>
-    </div>
-  );
+  const handleUpdateFlightValue = (legId: string, field: 'cost' | 'actualSpent', val: number) => {
+    const updatedLegs = localPlan.metadata.flights.legs.map(l => l.id === legId ? { ...l, [field]: val } : l);
+    setLocalPlan({ ...localPlan, metadata: { ...localPlan.metadata, flights: { ...localPlan.metadata.flights, legs: updatedLegs } } });
+  };
+
+  const handleUpdateHotelValue = (accId: string, field: 'cost' | 'actualSpent', val: number) => {
+    const updatedAccs = localPlan.metadata.accommodations.map(a => a.id === accId ? { ...a, [field]: val } : a);
+    setLocalPlan({ ...localPlan, metadata: { ...localPlan.metadata, accommodations: updatedAccs } });
+  };
+
+  const saveAll = () => {
+    onUpdatePlan(localPlan);
+    setIsEditing(false);
+  };
+
+  const submitReceipt = () => {
+    if (uploadForm.amount <= 0 || !uploadForm.vendor) {
+      alert("Vendor and Amount required.");
+      return;
+    }
+    const receipt: Receipt = {
+        id: uploadForm.id || Math.random().toString(36).substr(2, 9),
+        category: uploadForm.category, 
+        title: uploadForm.title || uploadForm.vendor,
+        vendor: uploadForm.vendor,
+        date: new Date().toLocaleDateString(),
+        amount: uploadForm.amount,
+        fileData: uploadForm.fileData,
+        fileName: uploadForm.fileName,
+        fileType: uploadForm.fileType,
+        activityId: uploadForm.activityId
+    };
+
+    let updatedReceipts = [...(localPlan.receipts || [])];
+    if (uploadForm.id) {
+        updatedReceipts = updatedReceipts.map(r => r.id === uploadForm.id ? receipt : r);
+    } else {
+        updatedReceipts.push(receipt);
+    }
+
+    let updatedPlan = { ...localPlan, receipts: updatedReceipts };
+    onUpdatePlan(updatedPlan);
+    setShowUploadModal(false);
+    setUploadForm({ id: '', title: '', vendor: '', amount: 0, activityId: '', fileData: '', fileName: '', fileType: '', category: 'activity' });
+  };
+
+  const handleEditReceipt = (r: Receipt) => {
+    setUploadForm({
+      id: r.id,
+      title: r.title,
+      vendor: r.vendor,
+      amount: r.amount,
+      activityId: r.activityId || '',
+      fileData: r.fileData,
+      fileName: r.fileName,
+      fileType: r.fileType,
+      category: r.category
+    });
+    setShowUploadModal(true);
+  };
+
+  const renderBreakdownItems = () => {
+    if (categoryTab === 'flight') {
+      return localPlan.metadata.flights.legs.map(leg => (
+        <BudgetRow key={leg.id} title={`${leg.airline || 'Flight'} ${leg.flightNumber}`} budgeted={leg.cost || 0} actual={leg.actualSpent || 0} isEditing={isEditing} curSym={curSym} onUpdate={(field, val) => handleUpdateFlightValue(leg.id, field, val)} />
+      ));
+    }
+    if (categoryTab === 'hotel') {
+      return localPlan.metadata.accommodations.map(acc => (
+        <BudgetRow key={acc.id} title={acc.hotelName || 'Accommodation'} budgeted={acc.cost || 0} actual={acc.actualSpent || 0} isEditing={isEditing} curSym={curSym} onUpdate={(field, val) => handleUpdateHotelValue(acc.id, field, val)} />
+      ));
+    }
+    return allActivities.filter(a => {
+        if (categoryTab === 'food') return a.type === 'food' || a.type === 'meal';
+        if (categoryTab === 'transport') return a.type === 'transport';
+        return a.type !== 'flight' && a.type !== 'hotel-checkin' && a.type !== 'hotel-checkout' && a.type !== 'food' && a.type !== 'meal' && a.type !== 'transport';
+    }).map(act => (
+        <BudgetRow key={act.id} title={`Day ${act.dayNumber}: ${act.title}`} budgeted={act.cost || 0} actual={act.actualSpent || 0} isEditing={isEditing} curSym={curSym} onUpdate={(field, val) => handleUpdateActivityValue(act.id, field, val)} />
+    ));
+  };
 
   return (
-    <div className="max-w-4xl mx-auto p-4 space-y-10 animate-fadeIn font-normal">
-      <div className="flex justify-center gap-2 bg-stone-100 dark:bg-stone-800 p-1.5 rounded-2xl w-fit mx-auto shadow-inner border border-stone-200 dark:border-stone-700">
-          <button onClick={() => {setActiveSubTab('overview'); setDrillDownCategory(null);}} className={`px-10 py-3 rounded-xl text-xs font-normal uppercase tracking-widest transition-all ${activeSubTab === 'overview' ? 'bg-white dark:bg-stone-900 shadow-md text-stone-900 dark:text-white' : 'text-stone-400 hover:text-stone-600 dark:hover:text-stone-200'}`}>Overview</button>
-          <button onClick={() => {setActiveSubTab('receipts'); setDrillDownCategory(null);}} className={`px-10 py-3 rounded-xl text-xs font-normal uppercase tracking-widest transition-all ${activeSubTab === 'receipts' ? 'bg-white dark:bg-stone-900 shadow-md text-stone-900 dark:text-white' : 'text-stone-400 hover:text-stone-600 dark:hover:text-stone-200'}`}>Receipts ({plan.receipts?.length || 0})</button>
+    <div className="p-4 space-y-8 animate-fadeIn max-w-6xl mx-auto">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+        <div className="flex gap-3 bg-stone-100 dark:bg-stone-800 p-2 rounded-2xl shadow-inner border border-stone-200 dark:border-stone-700">
+            <button onClick={() => setActiveSubTab('overview')} className={`px-8 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-all ${activeSubTab === 'overview' ? 'bg-white dark:bg-stone-900 shadow-md text-stone-900 dark:text-white' : 'text-stone-400 hover:text-stone-600'}`}>Overview</button>
+            <button onClick={() => setActiveSubTab('breakdown')} className={`px-8 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-all ${activeSubTab === 'breakdown' ? 'bg-white dark:bg-stone-900 shadow-md text-stone-900 dark:text-white' : 'text-stone-400 hover:text-stone-600'}`}>Tracking</button>
+            <button onClick={() => setActiveSubTab('receipts')} className={`px-8 py-3 rounded-xl text-sm font-bold uppercase tracking-widest transition-all ${activeSubTab === 'receipts' ? 'bg-white dark:bg-stone-900 shadow-md text-stone-900 dark:text-white' : 'text-stone-400 hover:text-stone-600'}`}>Receipt Vault {!isPro && '💎'}</button>
+        </div>
+        {activeSubTab === 'breakdown' && (
+            <button onClick={() => isEditing ? saveAll() : setIsEditing(true)} className={`${isEditing ? 'bg-emerald-600' : 'bg-indigo-600'} text-white px-10 py-3.5 rounded-2xl text-sm font-black uppercase tracking-widest shadow-xl transition-all active:scale-95`}>
+              {isEditing ? '✓ Save Changes' : 'Edit Budgets'}
+            </button>
+        )}
       </div>
 
-      {activeSubTab === 'overview' ? (
-        <div className="space-y-12">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="bg-stone-900 dark:bg-indigo-600 text-white p-10 rounded-[3rem] shadow-2xl relative overflow-hidden group">
-               <div className="absolute -right-12 -bottom-12 opacity-10 group-hover:rotate-12 group-hover:scale-125 transition-all duration-700 text-8xl">💰</div>
-               <p className="text-[10px] font-normal text-stone-400 dark:text-indigo-200 uppercase tracking-[0.3em] mb-3">Total Trip Goal</p>
-               <p className="text-3xl font-normal">{curSym}{budgetGoal.toLocaleString()}</p>
-            </div>
-            <div className="bg-white dark:bg-stone-900 p-10 rounded-[3rem] border border-stone-100 dark:border-stone-800 shadow-sm">
-               <p className="text-[10px] font-normal text-stone-400 uppercase tracking-[0.3em] mb-3">Est. Itinerary Total</p>
-               <p className="text-3xl font-normal text-stone-900 dark:text-white">{curSym}{totalBud.toLocaleString()}</p>
-            </div>
-            <div className={`p-10 rounded-[3rem] border shadow-2xl transition-all ${totalAct > budgetGoal ? 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'}`}>
-               <p className={`text-[10px] font-normal uppercase tracking-[0.3em] mb-3 ${totalAct > budgetGoal ? 'text-rose-400' : 'text-emerald-500'}`}>Actual Spent</p>
-               <p className={`text-3xl font-normal ${totalAct > budgetGoal ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'}`}>{curSym}{totalAct.toLocaleString()}</p>
-            </div>
+      {activeSubTab === 'overview' && (
+        <div className="space-y-8">
+          <div className="bg-white/80 dark:bg-stone-900/80 backdrop-blur-md p-12 rounded-[3.5rem] border dark:border-stone-800 shadow-xl grid grid-cols-1 md:grid-cols-3 gap-12">
+             <div className="space-y-3">
+                <p className="text-xs text-stone-400 uppercase font-black tracking-[0.2em]">Total Budgeted</p>
+                <p className="text-6xl font-black text-stone-900 dark:text-white leading-none">{curSym}{totalBudgeted.toLocaleString()}</p>
+             </div>
+             <div className="space-y-3">
+                <p className="text-xs text-indigo-400 uppercase font-black tracking-[0.2em]">Actual Spent</p>
+                <p className="text-6xl font-black text-indigo-600 dark:text-indigo-400 leading-none">{curSym}{totalSpent.toLocaleString()}</p>
+             </div>
+             <div className="space-y-3">
+                <p className="text-xs text-emerald-400 uppercase font-black tracking-[0.2em]">Balance</p>
+                <p className={`text-6xl font-black leading-none ${totalBudgeted - totalSpent < 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                  {curSym}{(totalBudgeted - totalSpent).toLocaleString()}
+                </p>
+             </div>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-             <CategorySummaryCard title="Activities & Culture" stats={activityStats} id="activities" color="bg-rose-50 dark:bg-rose-900/30 text-rose-500" />
-             <CategorySummaryCard title="Food & Dining" stats={diningStats} id="dining" color="bg-orange-50 dark:bg-orange-900/30 text-orange-500" />
-             <CategorySummaryCard title="Flights & Transportation" stats={flightStats} id="flights" color="bg-sky-50 dark:bg-sky-900/30 text-sky-500" />
-             <CategorySummaryCard title="Hotels & Stays" stats={hotelStats} id="hotels" color="bg-emerald-50 dark:bg-emerald-900/30 text-emerald-500" />
-          </div>
-
-          {drillDownCategory && (
-            <div className="bg-white dark:bg-stone-900 rounded-[3.5rem] border border-stone-200 dark:border-stone-800 p-12 shadow-[0_35px_60px_-15px_rgba(0,0,0,0.3)] animate-slideUp">
-               <div className="flex justify-between items-center mb-12">
-                  <h4 className="text-3xl font-bold text-stone-900 dark:text-white">Manage {drillDownCategory.charAt(0).toUpperCase() + drillDownCategory.slice(1)} Items</h4>
-                  <button onClick={() => setDrillDownCategory(null)} className="text-stone-300 dark:text-stone-700 hover:text-stone-900 dark:hover:text-stone-100 font-normal transition-colors">✕ Close Manager</button>
-               </div>
-               <div className="space-y-6 max-h-[550px] overflow-y-auto pr-6 custom-scrollbar font-normal">
-                  {(drillDownCategory === 'activities' ? activityStats : drillDownCategory === 'dining' ? diningStats : drillDownCategory === 'flights' ? flightStats : hotelStats).items.map(item => (
-                    <div key={item.id} className="bg-stone-50 dark:bg-stone-800/50 p-8 rounded-3xl border border-stone-100 dark:border-stone-700 flex flex-col md:flex-row md:items-center justify-between gap-8 group">
-                       <div className="flex-1">
-                          {item.dayNumber > 0 && (
-                             <div className="flex items-center gap-3 mb-2">
-                                <span className="bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 px-3 py-1 rounded-lg text-[9px] font-normal uppercase tracking-widest">Day {item.dayNumber}</span>
-                                <p className="text-[10px] font-normal text-stone-400 uppercase tracking-widest">{item.time}</p>
-                             </div>
-                          )}
-                          <p className="text-lg font-normal text-stone-900 dark:text-white group-hover:text-indigo-600 transition-colors">
-                            {item.title}
-                          </p>
+          <div className="bg-white/80 dark:bg-stone-900/80 backdrop-blur-md p-12 rounded-[3.5rem] border dark:border-stone-800 shadow-xl">
+             <h3 className="text-2xl font-black mb-10 tracking-tight">Category Spending Progress</h3>
+             <div className="space-y-10">
+               {categories.map(cat => {
+                 const s = stats[cat.key];
+                 const pct = s.budgeted > 0 ? Math.min(100, (s.spent / s.budgeted) * 100) : 0;
+                 return (
+                   <div key={cat.key} className="space-y-4">
+                     <div className="flex justify-between items-end">
+                       <div className="flex items-center gap-4">
+                         <span className="text-3xl">{cat.icon}</span>
+                         <span className="text-xl font-bold text-stone-800 dark:text-stone-100">{cat.name}</span>
                        </div>
-                       <div className="flex items-center gap-8 font-normal">
-                          <div className="text-right">
-                             <label className="text-[10px] font-normal text-stone-400 uppercase block mb-2 tracking-widest">Planned Budget</label>
-                             <div className="flex items-center gap-2 bg-white dark:bg-stone-900 px-4 py-2.5 rounded-2xl border dark:border-stone-700 shadow-inner">
-                                <span className="text-xs font-normal text-stone-400">{curSym}</span>
-                                <input type="number" className="text-sm font-normal bg-transparent w-24 outline-none dark:text-white" value={item.cost} onChange={e => handleUpdateItem(item.id, 'cost', Number(e.target.value))} />
-                             </div>
-                          </div>
-                          <div className="text-right">
-                             <label className="text-[10px] font-normal text-stone-400 uppercase block mb-2 tracking-widest">Actual Expense</label>
-                             <div className="flex items-center gap-2 bg-indigo-50 dark:bg-indigo-900/30 px-4 py-2.5 rounded-2xl border border-indigo-100 dark:border-indigo-800 shadow-inner">
-                                <span className="text-xs font-normal text-indigo-400">{curSym}</span>
-                                <input type="number" className="text-sm font-normal bg-transparent w-24 outline-none text-indigo-600 dark:text-indigo-300" value={item.actualSpent} onChange={e => handleUpdateItem(item.id, 'actualSpent', Number(e.target.value))} />
-                             </div>
-                          </div>
+                       <div className="text-right">
+                         <span className="text-sm font-black text-stone-400 tracking-widest">{curSym}{s.spent.toLocaleString()} / {curSym}{s.budgeted.toLocaleString()}</span>
                        </div>
-                    </div>
-                  ))}
-               </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-12 animate-slideUp">
-           <div className="flex flex-col md:flex-row justify-between items-center gap-8 px-6">
-              <h4 className="text-4xl font-bold text-stone-900 dark:text-white">Receipt Vault 📑</h4>
-              <div className="flex gap-4">
-                <button onClick={() => fileInputRef.current?.click()} className="bg-indigo-600 text-white px-10 py-5 rounded-2xl text-xs font-normal uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition active:scale-95">Upload New Receipt</button>
-                {plan.receipts && plan.receipts.length > 0 && (
-                  <button onClick={() => plan.receipts?.forEach(downloadReceipt)} className="px-10 py-5 bg-stone-900 dark:bg-stone-100 dark:text-stone-900 text-white rounded-2xl text-xs font-normal uppercase tracking-widest shadow-xl hover:bg-black dark:hover:bg-white transition active:scale-95">Archive All</button>
-                )}
-              </div>
-              <input type="file" hide="true" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
-           </div>
-
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 px-2 font-normal">
-              {plan.receipts?.length === 0 ? (
-                <div className="col-span-full py-32 bg-stone-50 dark:bg-stone-900/50 border-4 border-dashed border-stone-100 dark:border-stone-800 rounded-[4rem] text-center flex flex-col items-center justify-center">
-                   <span className="text-7xl mb-6 opacity-20">📑</span>
-                   <p className="text-stone-400 dark:text-stone-600 font-normal uppercase tracking-[0.3em]">No digitized receipts found.</p>
-                   <p className="text-xs text-stone-400 mt-2 font-normal">Upload photos to automatically track spending per category.</p>
-                </div>
-              ) : (
-                plan.receipts?.map(r => (
-                  <div key={r.id} className="bg-white dark:bg-stone-900 border dark:border-stone-800 p-10 rounded-[3rem] shadow-sm flex flex-col justify-between group hover:shadow-2xl hover:scale-[1.03] transition-all">
-                     <div className="mb-8 font-normal">
-                       <div className="w-14 h-14 bg-stone-50 dark:bg-stone-800 rounded-2xl flex items-center justify-center text-3xl mb-6 group-hover:rotate-12 group-hover:scale-110 transition-transform shadow-sm">📄</div>
-                       <p className="text-xl font-normal text-stone-900 dark:text-white line-clamp-1">{r.title}</p>
-                       <p className="text-[10px] text-stone-400 dark:text-stone-600 font-normal uppercase tracking-[0.2em] mt-2">{r.date} • {r.vendor}</p>
                      </div>
-                     <button onClick={() => downloadReceipt(r)} className="w-full py-5 bg-stone-900 dark:bg-stone-100 dark:text-stone-900 text-white rounded-2xl text-[10px] font-normal uppercase tracking-widest shadow-lg group-hover:bg-black dark:group-hover:bg-white transition active:scale-95">Download PDF/Image</button>
-                  </div>
-                ))
-              )}
+                     <div className="h-5 w-full bg-stone-100 dark:bg-stone-800 rounded-full overflow-hidden border dark:border-stone-700 p-1">
+                       <div className={`h-full rounded-full transition-all duration-1000 ${s.spent > s.budgeted && s.budgeted > 0 ? 'bg-rose-500' : 'bg-indigo-500'}`} style={{ width: `${pct || (s.spent > 0 ? 100 : 0)}%` }} />
+                     </div>
+                   </div>
+                 );
+               })}
+             </div>
+          </div>
+        </div>
+      )}
+
+      {activeSubTab === 'breakdown' && (
+        <div className="space-y-8">
+           <div className="flex flex-wrap gap-3 justify-center">
+              {categories.map(cat => (
+                  <button key={cat.key} onClick={() => setCategoryTab(cat.key as any)} className={`px-7 py-3 rounded-2xl text-sm font-black transition-all border ${categoryTab === cat.key ? 'bg-indigo-600 text-white border-indigo-600 shadow-xl scale-110' : 'bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-800 text-stone-400'}`}>
+                    {cat.icon} {cat.name}
+                  </button>
+              ))}
            </div>
+           <div className="bg-white/80 dark:bg-stone-900/80 backdrop-blur-md rounded-[3rem] border dark:border-stone-800 shadow-2xl overflow-hidden">
+              <div className="p-8 bg-stone-50 dark:bg-stone-800/50 border-b dark:border-stone-700 grid grid-cols-12 gap-6 text-xs font-black uppercase tracking-[0.2em] text-stone-400">
+                 <div className="col-span-6">Item Description</div>
+                 <div className="col-span-3 text-right">Budgeted</div>
+                 <div className="col-span-3 text-right">Actual Spent</div>
+              </div>
+              <div className="divide-y dark:divide-stone-800">
+                 {renderBreakdownItems()}
+              </div>
+           </div>
+        </div>
+      )}
+
+      {activeSubTab === 'receipts' && (
+        <div className="relative min-h-[500px]">
+           <div className={`space-y-8 ${!isPro ? 'blur-md pointer-events-none' : ''}`}>
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-6 bg-white dark:bg-stone-900 p-10 rounded-[3rem] border dark:border-stone-800 shadow-xl">
+                 <div>
+                   <h4 className="text-3xl font-black text-stone-900 dark:text-white leading-tight mb-2">Receipt Vault 📑</h4>
+                   <p className="text-lg text-stone-500 font-normal">Securely manage your trip documents and spending.</p>
+                 </div>
+                 <div className="flex gap-3">
+                   <button className="bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 px-8 py-4 rounded-2xl text-sm font-black uppercase tracking-widest hover:bg-stone-200 transition">Export CSV</button>
+                   <button onClick={() => fileInputRef.current?.click()} className="bg-indigo-600 text-white px-10 py-4 rounded-2xl text-sm font-black uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition">Upload New</button>
+                 </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                 {/* Empty state for receipts */}
+                 <div className="col-span-full py-20 text-center text-stone-400 uppercase tracking-widest text-sm font-bold border-4 border-dashed border-stone-200 rounded-[3rem]">No receipts uploaded yet</div>
+              </div>
+           </div>
+           
+           {!isPro && (
+             <div className="absolute inset-0 z-20 flex items-center justify-center">
+                <div className="bg-white/95 dark:bg-stone-900/95 p-12 rounded-[4rem] shadow-2xl border-4 border-indigo-600 max-w-lg text-center animate-slideUp">
+                   <span className="text-7xl mb-8 block">📸</span>
+                   <h4 className="text-3xl font-black mb-4">Receipt Vault Locked</h4>
+                   <p className="text-stone-500 mb-10 leading-relaxed">
+                     Keep all your travel expenses organized. Upload receipts, link them to activities, and export everything to CSV with OpenTrip Pro.
+                   </p>
+                   <button onClick={onUpgrade} className="w-full bg-indigo-600 text-white py-6 rounded-3xl font-black uppercase tracking-widest shadow-xl hover:scale-105 transition-all">Go Pro to Unlock</button>
+                </div>
+             </div>
+           )}
         </div>
       )}
     </div>
   );
 };
+
+const BudgetRow: React.FC<{ title: string; budgeted: number; actual: number; isEditing: boolean; curSym: string; onUpdate: (field: 'cost' | 'actualSpent', val: number) => void; }> = ({ title, budgeted, actual, isEditing, curSym, onUpdate }) => (
+    <div className="p-8 grid grid-cols-12 gap-6 items-center hover:bg-stone-50 dark:hover:bg-stone-800/50 transition-colors">
+        <div className="col-span-6 font-black text-stone-800 dark:text-stone-100 text-lg leading-tight">{title}</div>
+        <div className="col-span-3 text-right">
+            {isEditing ? (
+                <input type="number" value={budgeted} onChange={e => onUpdate('cost', Number(e.target.value))} className="w-full py-3 text-right text-lg bg-white dark:bg-stone-900 border dark:border-stone-700 rounded-xl px-4 outline-none dark:text-white font-black" />
+            ) : (
+                <span className="text-lg font-bold text-stone-400">{curSym}{budgeted.toLocaleString()}</span>
+            )}
+        </div>
+        <div className="col-span-3 text-right">
+            {isEditing ? (
+                <input type="number" value={actual} onChange={e => onUpdate('actualSpent', Number(e.target.value))} className="w-full py-3 text-right text-lg bg-white dark:bg-stone-900 border dark:border-stone-700 rounded-xl px-4 outline-none dark:text-white font-black" />
+            ) : (
+                <span className={`text-2xl font-black ${actual > budgeted && budgeted > 0 ? 'text-rose-500' : 'text-indigo-600 dark:text-indigo-400'}`}>{curSym}{actual.toLocaleString()}</span>
+            )}
+        </div>
+    </div>
+);

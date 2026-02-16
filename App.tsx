@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { TripForm } from './components/TripForm';
 import { ItineraryDisplay } from './components/ItineraryDisplay';
@@ -8,8 +7,14 @@ import { SettingsPage } from './components/SettingsPage';
 import { TripRequest, TripPlan } from './types';
 import { generateTripPlan } from './services/gemini';
 
-const LOGO_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYwIiBoZWlnaHQ9IjUwIiB2aWV3Qm94PSIwIDAgMTYwIDUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgogIDxkZWZzPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJ0cmlwR3JhZGllbnQiIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjAlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3R5bGU9InN0b3AtY29sb3I6IzA2YjZkNDtzdG9wLW9wYWNpdHk6MSIgLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdHlsZT0ic3RvcC1jb2xvcjojNGFkZTgwO3N0b3Atb3BhY2l0eToxIiAvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHRleHQgeD0iMCIgeT0iNDAiIGZvbnQtZmFtaWx5PSInRnJlZG9rYScsIHNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSI0MDAiIGZvbnQtc2l6ZT0iNDAiIGZpbGw9IiMxYzE5MTciIGxldHRlci1zcGFjaW5nPSItMiI+b3BlbjwvdGV4dD4KICA8dGV4dCB4PSI4NSIgeT0iNDAiIGZvbnQtZmFtaWx5PSInRnJlZG9rYScsIHNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSI0MDAiIGZvbnQtc2l6ZT0iNDAiIGZpbGw9InVybCgjdHJpcEdyYWRpZW50KSIgbGV0dGVyLXNwYWNpbmc9Ii0yIj50cmlwPC90ZXh0Pgo8L3N2Zz4=";
-const DARK_LOGO_DATA_URI = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYwIiBoZWlnaHQ9IjUwIiB2aWV3Qm94PSIwIDAgMTYwIDUwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgogIDxkZWZzPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJ0cmlwR3JhZGllbnQiIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjAlIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3R5bGU9InN0b3AtY29sb3I6IzA2YjZkNDtzdG9wLW9wYWNpdHk6MSIgLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxMDAlIiBzdHlsZT0ic3RvcC1jb2xvcjojNGFkZTgwO3N0b3Atb3BhY2l0eToxIiAvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHRleHQgeD0iMCIgeT0iNDAiIGZvbnQtZmFtaWx5PSInRnJlZG9rYScsIHNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSI0MDAiIGZvbnQtc2l6ZT0iNDAiIGZpbGw9IiNmZmZmZmYiIGxldHRlci1zcGFjaW5nPSItMiI+b3BlbjwvdGV4dD4KICA8dGV4dCB4PSI4NSIgeT0iNDAiIGZvbnQtZmFtaWx5PSInRnJlZG9rYScsIHNhbnMtc2VyaWYiIGZvbnQtd2VpZ2h0PSI0MDAiIGZvbnQtc2l6ZT0iNDAiIGZpbGw9InVybCgjdHJpcEdyYWRpZW50KSIgbGV0dGVyLXNwYWNpbmc9Ii0yIj50cmlwPC90ZXh0Pgo8L3N2Zz4=";
+const Logo = () => (
+  <div className="flex items-center gap-3 cursor-pointer group">
+    <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg group-hover:rotate-12 transition-transform duration-300">
+      <span className="text-white text-xl font-bold font-sans">O</span>
+    </div>
+    <span className="text-2xl font-bold tracking-tight text-white drop-shadow-md font-sans">OpenTrip</span>
+  </div>
+);
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<'form' | 'itinerary' | 'history' | 'settings'>('form');
@@ -41,154 +46,174 @@ const App: React.FC = () => {
   }, [isPro]);
 
   const handleTripSubmit = async (request: TripRequest) => {
+    // If not pro and already has a trip, force history view or upgrade
+    if (!isPro && savedTrips.length >= 1) {
+      alert("Free tier is limited to 1 saved trip. Please upgrade to Pro for unlimited vault storage!");
+      setCurrentView('history');
+      return;
+    }
+
     setTripLoading(true);
     try {
       const { plan } = await generateTripPlan(request);
+      plan.id = plan.id || Math.random().toString(36).substr(2, 9);
       plan.metadata = { 
         ...plan.metadata, 
         travelers: request.travelers, 
-        dates: request.dates 
+        dates: request.dates,
+        budget: request.budget,
+        budgetType: request.budgetType,
+        timePreference: request.timePreference,
+        activityPreference: request.activityPreference,
       };
       plan.budgetOverrides = {
-        flightCost: request.flightBudget,
-        accommodationCost: request.hotelBudget,
         includeFlight: request.includeFlightBudget,
-        includeAccommodation: request.includeHotelBudget
+        flightCost: request.flightBudget,
+        includeAccommodation: request.includeHotelBudget,
+        accommodationCost: request.hotelBudget,
+        includeTransport: request.includeTransportBudget,
+        transportCost: request.transportBudget,
+        actualFlightSpent: 0,
+        actualAccommodationSpent: 0,
+        actualTransportSpent: 0,
       };
-      
-      const newPlan = { ...plan, id: Math.random().toString(36).substr(2, 9) };
-      setSavedTrips(prev => [newPlan, ...prev]);
-      setTripPlan(newPlan);
+
+      if (!Array.isArray(plan.importantContacts)) plan.importantContacts = [];
+      if (!Array.isArray(plan.transportResources)) plan.transportResources = [];
+
+      setTripPlan(plan);
+      setSavedTrips(prev => [...prev, plan]);
       setCurrentView('itinerary');
-    } catch (err: any) {
-      alert(err.message);
+    } catch (error) {
+      console.error('Error generating trip plan:', error);
+      alert('Failed to generate trip plan. Please try again.');
     } finally {
       setTripLoading(false);
     }
   };
 
-  const handleUpdatePlan = (newPlan: TripPlan) => {
-    setTripPlan(newPlan);
-    setSavedTrips(prev => prev.map(t => t.id === newPlan.id ? newPlan : t));
-  };
-
-  const handleDeleteTrip = (id: string) => {
-    setSavedTrips(prev => prev.filter(t => t.id !== id));
-    if (tripPlan?.id === id) setTripPlan(null);
+  const handleUpdatePlan = (updatedPlan: TripPlan) => {
+    setTripPlan(updatedPlan);
+    setSavedTrips(prev => prev.map(t => t.id === updatedPlan.id ? updatedPlan : t));
   };
 
   const handleResetData = () => {
-    if (confirm('Permanently delete all trips? This cannot be undone.')) {
+    if (window.confirm("Purge all data?")) {
+      localStorage.clear();
       setSavedTrips([]);
       setTripPlan(null);
+      setIsPro(false);
       setCurrentView('form');
     }
   };
 
   const handleUpgrade = () => {
     setIsPro(true);
-    alert("OpenTrip Pro activated for this local session! (Demo Mode)");
+    alert("You are now an OpenTrip Pro member! 💎");
   };
 
-  // Helper to determine text colors based on the current view/background
-  const isFormView = currentView === 'form';
-  const navTextColor = isFormView ? 'text-white' : 'text-stone-900 dark:text-stone-100';
-  const navInactiveColor = isFormView ? 'text-white/80' : 'text-stone-400 dark:text-stone-500';
-  const navShadow = isFormView ? 'drop-shadow-md' : '';
+  const handleShare = () => {
+    if (!isPro) {
+      alert("Sharing is a Pro feature! 💎");
+      return;
+    }
+    alert("Trip sharing link copied to clipboard!");
+  };
+
+  const navItemClass = (view: string) => `
+    px-5 py-2.5 rounded-full transition-all duration-300 font-bold tracking-wider
+    ${currentView === view 
+      ? 'bg-white text-stone-900 shadow-xl scale-105' 
+      : 'text-white bg-black/40 hover:bg-white hover:text-stone-900 hover:font-black backdrop-blur-md opacity-80 hover:opacity-100'}
+  `;
+
+  const backgroundMap = {
+    form: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=2560&q=80",
+    itinerary: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=2560&q=80",
+    history: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=2560&q=80",
+    settings: "https://images.unsplash.com/photo-1472214103451-9374bd1c798e?auto=format&fit=crop&w=2560&q=80"
+  };
 
   return (
-    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 py-10 px-4 transition-colors duration-300 relative">
-      {/* Maui Oceanfront Background for Form View */}
-      {isFormView && !tripLoading && (
-        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden animate-fadeIn">
+    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-300 relative overflow-x-hidden">
+      <div className="fixed inset-0 z-0 pointer-events-none transition-opacity duration-1000 overflow-hidden">
+        {Object.entries(backgroundMap).map(([view, src]) => (
           <img 
-            src="https://images.unsplash.com/photo-1505852679233-d9fd70aff56d?auto=format&fit=crop&w=2400&q=80" 
-            className="w-full h-full object-cover" 
-            alt="Maui Oceanfront"
+            key={view}
+            src={src} 
+            alt="" 
+            className={`absolute inset-0 w-full h-full object-cover transition-all duration-1000 ${currentView === view ? 'opacity-30 blur-[2px] scale-100' : 'opacity-0 scale-110'}`} 
           />
-          <div className="absolute inset-0 bg-stone-100/30 dark:bg-stone-950/40 backdrop-blur-[1px]"></div>
-          {/* Subtle gradient to ease into the content */}
-          <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-stone-50 dark:to-stone-950"></div>
-        </div>
-      )}
+        ))}
+        <div className="absolute inset-0 bg-stone-900/10 dark:bg-stone-950/30 backdrop-blur-[1px]"></div>
+      </div>
 
-      <nav className="max-w-6xl mx-auto mb-16 flex justify-between items-center relative z-10">
-         <img 
-           src={darkMode ? DARK_LOGO_DATA_URI : LOGO_DATA_URI} 
-           alt="Logo" 
-           className={`h-10 cursor-pointer transition-all ${navShadow}`} 
-           onClick={() => setCurrentView('form')} 
-         />
-         <div className="flex gap-8 items-center">
-            <button 
-              onClick={() => setCurrentView('history')} 
-              className={`text-xs font-normal uppercase tracking-[0.2em] transition-all hover:scale-105 active:scale-95 ${navShadow} ${currentView === 'history' ? `${navTextColor} border-b-2 border-indigo-400 pb-1` : `${navInactiveColor} hover:${navTextColor}`}`}
-            >
-              History
-            </button>
-            <button 
-              onClick={() => setCurrentView('settings')} 
-              className={`text-xs font-normal uppercase tracking-[0.2em] transition-all hover:scale-105 active:scale-95 ${navShadow} ${currentView === 'settings' ? `${navTextColor} border-b-2 border-indigo-400 pb-1` : `${navInactiveColor} hover:${navTextColor}`}`}
-            >
-              Settings
-            </button>
-            {!isPro && (
-              <button 
-                onClick={handleUpgrade}
-                className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl text-[10px] font-normal uppercase tracking-widest hover:bg-indigo-700 transition shadow-xl hover:scale-105 active:scale-95"
-              >
-                Go Pro
-              </button>
-            )}
-         </div>
-      </nav>
+      <header className="px-6 py-6 md:px-12 md:py-8 flex justify-between items-center relative z-[100]">
+        <div onClick={() => setCurrentView('form')}><Logo /></div>
+        <nav className="flex items-center gap-3 sm:gap-6 text-xs uppercase">
+          <button onClick={() => setCurrentView('form')} className={navItemClass('form')}>Plan</button>
+          <button onClick={() => setCurrentView('history')} className={navItemClass('history')}>History</button>
+          <button onClick={() => setCurrentView('settings')} className={navItemClass('settings')}>Settings</button>
+          {!isPro && (
+            <button onClick={handleUpgrade} className="bg-indigo-600 text-white px-5 py-2.5 rounded-full font-black hover:bg-indigo-500 shadow-lg active:scale-95 transition-all">Go Pro 💎</button>
+          )}
+        </nav>
+      </header>
 
-      <main className="max-w-6xl mx-auto relative z-10">
+      <main className="relative z-20 pt-4">
         {currentView === 'form' && <TripForm onSubmit={handleTripSubmit} isLoading={tripLoading} />}
-        
         {currentView === 'itinerary' && tripPlan && (
-          <ItineraryDisplay 
-            plan={tripPlan} 
-            isPro={isPro} 
-            onUpdatePlan={handleUpdatePlan} 
-            groundingUrls={[]} 
-            onReset={() => setCurrentView('form')} 
-            onUpgrade={handleUpgrade} 
-            canUndo={false} 
-            onUndo={() => {}} 
-            onShare={() => {}} 
-          />
+          <>
+            <ItineraryDisplay 
+              plan={tripPlan} 
+              groundingUrls={[]} 
+              onReset={() => { setTripPlan(null); setCurrentView('form'); }} 
+              isPro={isPro} 
+              onUpgrade={handleUpgrade}
+              onUpdatePlan={handleUpdatePlan}
+              canUndo={false}
+              onUndo={() => {}}
+              onShare={handleShare}
+            />
+            <AssistantChat plan={tripPlan} isPro={isPro} onUpgrade={handleUpgrade} />
+          </>
         )}
-        
         {currentView === 'history' && (
           <HistoryPage 
             trips={savedTrips} 
             isPro={isPro} 
-            onView={t => {setTripPlan(t); setCurrentView('itinerary');}} 
-            onDuplicate={() => {}} 
-            onDelete={handleDeleteTrip} 
+            onView={(trip) => { setTripPlan(trip); setCurrentView('itinerary'); }} 
+            onDuplicate={(trip) => {
+              if (!isPro) {
+                alert("Duplication is a Pro feature! 💎");
+                return;
+              }
+              const duplicatedTrip = JSON.parse(JSON.stringify(trip));
+              duplicatedTrip.id = Math.random().toString(36).substr(2, 9);
+              duplicatedTrip.createdAt = Date.now();
+              duplicatedTrip.tripTitle = `${trip.tripTitle} (Copy)`;
+              setSavedTrips(prev => [...prev, duplicatedTrip]);
+              alert('Trip duplicated successfully!');
+            }} 
+            onDelete={(id) => {
+              if (window.confirm("Permanently remove this trip from your vault?")) {
+                setSavedTrips(prev => prev.filter(t => t.id !== id));
+                if (tripPlan?.id === id) setTripPlan(null);
+              }
+            }} 
             onUpgrade={handleUpgrade} 
           />
         )}
-        
         {currentView === 'settings' && (
           <SettingsPage 
             isPro={isPro} 
             onUpgrade={handleUpgrade} 
-            onResetData={handleResetData}
-            darkMode={darkMode}
-            onToggleDarkMode={() => setDarkMode(!darkMode)}
+            onResetData={handleResetData} 
+            darkMode={darkMode} 
+            onToggleDarkMode={() => setDarkMode(prev => !prev)} 
           />
         )}
       </main>
-      
-      {tripPlan && (
-        <AssistantChat 
-          plan={tripPlan} 
-          isPro={isPro} 
-          onUpgrade={handleUpgrade} 
-        />
-      )}
     </div>
   );
 };
